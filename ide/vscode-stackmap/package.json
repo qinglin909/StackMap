@@ -1,0 +1,57 @@
+{
+  "name": "stackmap-vscode",
+  "displayName": "栈析 · StackMap 方法跳转",
+  "description": "F14 原型：从编辑器里的方法名一键跳到栈析/StackMap 知识库条目。",
+  "version": "0.1.0",
+  "publisher": "stackmap",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onCommand:stackmap.openMethod",
+    "onCommand:stackmap.copyDeepLink",
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:javascriptreact",
+    "onLanguage:typescriptreact"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "stackmap.openMethod",
+        "title": "栈析：打开方法条目"
+      },
+      {
+        "command": "stackmap.copyDeepLink",
+        "title": "栈析：复制方法深链"
+      }
+    ],
+    "configuration": {
+      "title": "栈析 StackMap",
+      "properties": {
+        "stackmap.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:5173",
+          "description": "栈析 App 的访问根地址（不含末尾斜杠），用于拼接方法深链。"
+        },
+        "stackmap.methodMap": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string",
+            "description": "对应的 methodId，例如 m.fe.useUploadQueue"
+          },
+          "description": "方法名 → methodId 的显式映射；命中时优先使用 id 深链，未命中时回退 by-name 深链。"
+        },
+        "stackmap.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "项目根目录（绝对或相对工作区），用于计算深链里的 relativePath；留空则使用当前工作区根目录。"
+        }
+      }
+    }
+  }
+}

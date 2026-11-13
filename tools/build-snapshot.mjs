@@ -10,6 +10,9 @@ const methodsDoc = read('methods.json');
 const chainsDoc = read('chains.json');
 const incidentsDoc = read('incidents.json');
 const troubleshootingDoc = read('troubleshooting.json');
+// F15 自动抽取骨架是可选生成物；缺失时快照仍可构建
+const skeletonPath = path.join(CONTENT, 'generated/links.skeleton.json');
+const skeleton = fs.existsSync(skeletonPath) ? JSON.parse(fs.readFileSync(skeletonPath, 'utf8')) : null;
 
 const methods = methodsDoc.entries;
 const chains = chainsDoc.chains;
@@ -86,6 +89,18 @@ for (const flow of troubleshootingDoc.flows) {
     if (o.next !== 'RESULT' && !sids.has(o.next)) errors.push(`flow ${flow.id}: ${s.id}.next 指向不存在的步骤 ${o.next}`);
   }
 }
+// ---- F15 links 骨架引用完整性 ----
+if (skeleton) {
+  for (const e of skeleton.entries || []) {
+    if (!ids.has(e.methodId)) errors.push(`links skeleton: methodId ${e.methodId} 不存在`);
+    for (const k of ['upstream', 'downstream', 'related']) {
+      for (const ref of ((e.suggestedLinks || {})[k] || [])) {
+        if (!ids.has(ref)) errors.push(`links skeleton ${e.methodId}.${k}: 建议引用了不存在的条目 ${ref}`);
+        if (ref === e.methodId) errors.push(`links skeleton ${e.methodId}.${k}: 存在自引用`);
+      }
+    }
+  }
+}
 
 // ---- Markdown 结构校验（草稿，不并入快照） ----
 const mdDir = path.join(CONTENT, 'methods');
@@ -116,12 +131,14 @@ const snapshot = {
   methods,
   chains,
   incidents,
-  troubleshooting: troubleshootingDoc
+  troubleshooting: troubleshootingDoc,
+  linksSkeleton: skeleton
 };
 const out = `/* 自动生成，请勿手改。运行：node tools/build-snapshot.mjs\n * 事实源：content/*.json ；本文件仅用于 file:// 直接打开时的离线兜底。\n */\nwindow.__REPO_SNAPSHOT__ = ${JSON.stringify(snapshot, null, 2)};\n`;
 fs.writeFileSync(path.join(ROOT, 'data.js'), out, 'utf8');
 
 console.log(`条目 ${methods.length} / 链路 ${chains.length} / 事故 ${incidents.length} / 排查流 ${troubleshootingDoc.flows.length} / Markdown 草稿 ${mdFiles.length}`);
+console.log(skeleton ? `F15 links 骨架已打包：${skeleton.parser} · ${skeleton.entries.length} 条目 · ${skeleton.summary.callEdges} 调用边` : 'F15 links 骨架：未生成（运行 node tools/extract-links.mjs 可生成）');
 console.log(`待同步条目 ${warnings.filter((w) => w.includes('待同步')).length} 条，其它提醒 ${warnings.filter((w) => !w.includes('待同步')).length} 条`);
 if (warnings.length) warnings.forEach((w) => console.log('  ⚠ ' + w));
 if (errors.length) {
@@ -129,5 +146,5 @@ if (errors.length) {
   errors.forEach((e) => console.error('  ✗ ' + e));
   process.exit(1);
 }
-console.log('\n✓ 验收标准校验通过：结论含条件 / 兜底按层且三要素齐全 / 链路引用完整 / 决策树与排查流可达');
+console.log('\n✓ 验收标准校验通过：结论含条件 / 兜底按层且三要素齐全 / 链路引用完整 / 决策树与排查流可达 / links 骨架引用完整');
 console.log('✓ 已写入 data.js（离线快照）');

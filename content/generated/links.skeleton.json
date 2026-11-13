@@ -1,0 +1,499 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-11-13T10:21:34.268Z",
+  "tool": "extract-links.mjs",
+  "parser": "builtin-regex",
+  "sourceRoot": "samples",
+  "entries": [
+    {
+      "methodId": "m.fe.useUploadQueue",
+      "repoPath": "apps/web/src/upload/useUploadQueue.ts",
+      "found": true,
+      "signatures": [
+        {
+          "name": "useUploadQueue",
+          "signature": "useUploadQueue(opts: UploadQueueOpts)",
+          "line": 15
+        },
+        {
+          "name": "runOne",
+          "signature": "runOne(file: File)",
+          "line": 20
+        },
+        {
+          "name": "add",
+          "signature": "add(files: File[])",
+          "line": 26
+        },
+        {
+          "name": "cancel",
+          "signature": "cancel(reason: string)",
+          "line": 36
+        }
+      ],
+      "calls": [
+        {
+          "callee": "createUploadToken",
+          "line": 21,
+          "resolvedMethodId": "m.bff.createUploadToken"
+        },
+        {
+          "callee": "uploadFileToOSS",
+          "line": 22,
+          "resolvedMethodId": "m.fe.uploadFile"
+        }
+      ],
+      "suggestedLinks": {
+        "upstream": [],
+        "downstream": [
+          "m.bff.createUploadToken",
+          "m.fe.uploadFile"
+        ],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [],
+        "downstream": [
+          "m.fe.uploadFile",
+          "m.bff.createUploadToken"
+        ],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "confidence": 0.85
+    },
+    {
+      "methodId": "m.fe.uploadFile",
+      "repoPath": "apps/web/src/upload/uploadFileToOSS.ts",
+      "found": true,
+      "signatures": [
+        {
+          "name": "putObject",
+          "signature": "putObject(url: string, file: File)",
+          "line": 11
+        },
+        {
+          "name": "uploadFileToOSS",
+          "signature": "uploadFileToOSS(file: File, opts: UploadOpts)",
+          "line": 16
+        },
+        {
+          "name": "refreshToken",
+          "signature": "refreshToken(key: string)",
+          "line": 28
+        }
+      ],
+      "calls": [
+        {
+          "callee": "verifyUploadCallback",
+          "line": 23,
+          "resolvedMethodId": "m.be.verifyUploadCallback"
+        },
+        {
+          "callee": "createUploadToken",
+          "line": 29,
+          "resolvedMethodId": "m.bff.createUploadToken"
+        }
+      ],
+      "suggestedLinks": {
+        "upstream": [
+          "m.fe.useUploadQueue"
+        ],
+        "downstream": [
+          "m.be.verifyUploadCallback",
+          "m.bff.createUploadToken"
+        ],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.fe.useUploadQueue"
+        ],
+        "downstream": [
+          "m.bff.createUploadToken",
+          "m.infra.ossLifecycle"
+        ],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "confidence": 0.85
+    },
+    {
+      "methodId": "m.bff.createUploadToken",
+      "repoPath": "apps/bff/src/routes/upload-token.ts",
+      "found": true,
+      "signatures": [
+        {
+          "name": "lookupByHash",
+          "signature": "lookupByHash(hash: string, size: number)",
+          "line": 7
+        },
+        {
+          "name": "createUploadToken",
+          "signature": "createUploadToken(req: UploadTokenReq, ctx: UserCtx)",
+          "line": 12
+        }
+      ],
+      "calls": [
+        {
+          "callee": "generatePresignedUrl",
+          "line": 19,
+          "resolvedMethodId": "m.be.generatePresignedUrl"
+        }
+      ],
+      "suggestedLinks": {
+        "upstream": [
+          "m.fe.uploadFile",
+          "m.fe.useUploadQueue"
+        ],
+        "downstream": [
+          "m.be.generatePresignedUrl"
+        ],
+        "related": [
+          "m.bff.createOrder"
+        ]
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.fe.useUploadQueue",
+          "m.fe.uploadFile"
+        ],
+        "downstream": [
+          "m.be.generatePresignedUrl"
+        ],
+        "related": [
+          "m.data.redisDedupe"
+        ]
+      },
+      "confidence": 0.8
+    },
+    {
+      "methodId": "m.be.generatePresignedUrl",
+      "repoPath": "services/file/src/main/java/.../PresignService.java",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [
+          "m.bff.createUploadToken"
+        ],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.bff.createUploadToken"
+        ],
+        "downstream": [
+          "m.fe.uploadFile",
+          "m.infra.ossLifecycle"
+        ],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.be.verifyUploadCallback",
+      "repoPath": "services/file/src/main/java/.../CallbackVerifier.java",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [
+          "m.fe.uploadFile"
+        ],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.infra.ossLifecycle",
+          "m.fe.uploadFile"
+        ],
+        "downstream": [
+          "m.be.publishOrderEvent"
+        ],
+        "related": [
+          "m.fe.useUploadQueue"
+        ]
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.infra.ossLifecycle",
+      "repoPath": "infra/terraform/oss_lifecycle.tf",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.be.generatePresignedUrl",
+          "m.fe.uploadFile"
+        ],
+        "downstream": [
+          "m.be.verifyUploadCallback"
+        ],
+        "related": []
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.fe.submitOrder",
+      "repoPath": "apps/web/src/order/submitOrder.ts",
+      "found": true,
+      "signatures": [
+        {
+          "name": "readSessionKey",
+          "signature": "readSessionKey(cartId: string)",
+          "line": 9
+        },
+        {
+          "name": "submitOrder",
+          "signature": "submitOrder(draft: OrderDraft, opts: SubmitOpts)",
+          "line": 14
+        }
+      ],
+      "calls": [
+        {
+          "callee": "createOrder",
+          "line": 21,
+          "resolvedMethodId": "m.bff.createOrder"
+        }
+      ],
+      "suggestedLinks": {
+        "upstream": [],
+        "downstream": [
+          "m.bff.createOrder"
+        ],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [],
+        "downstream": [
+          "m.bff.createOrder"
+        ],
+        "related": [
+          "m.be.idempotentGuard"
+        ]
+      },
+      "confidence": 0.8
+    },
+    {
+      "methodId": "m.bff.createOrder",
+      "repoPath": "apps/bff/src/routes/orders.ts",
+      "found": true,
+      "signatures": [
+        {
+          "name": "createOrder",
+          "signature": "createOrder(req: CreateOrderReq, ctx: UserCtx)",
+          "line": 9
+        }
+      ],
+      "calls": [
+        {
+          "callee": "withIdempotency",
+          "line": 20,
+          "resolvedMethodId": "m.be.idempotentGuard"
+        },
+        {
+          "callee": "insertOrderWithTx",
+          "line": 21,
+          "resolvedMethodId": "m.data.insertOrderTx"
+        },
+        {
+          "callee": "publishOrderCreated",
+          "line": 22,
+          "resolvedMethodId": "m.be.publishOrderEvent"
+        }
+      ],
+      "suggestedLinks": {
+        "upstream": [
+          "m.fe.submitOrder"
+        ],
+        "downstream": [
+          "m.be.idempotentGuard",
+          "m.be.publishOrderEvent",
+          "m.data.insertOrderTx"
+        ],
+        "related": [
+          "m.bff.createUploadToken"
+        ]
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.fe.submitOrder"
+        ],
+        "downstream": [
+          "m.be.idempotentGuard",
+          "m.be.createOrder"
+        ],
+        "related": [
+          "m.data.insertOrderTx"
+        ]
+      },
+      "confidence": 0.9
+    },
+    {
+      "methodId": "m.be.idempotentGuard",
+      "repoPath": "services/order/src/main/java/.../IdempotencyGuard.java",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [
+          "m.bff.createOrder"
+        ],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.bff.createOrder"
+        ],
+        "downstream": [
+          "m.data.redisDedupe",
+          "m.be.createOrder"
+        ],
+        "related": [
+          "m.fe.submitOrder"
+        ]
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.be.createOrder",
+      "repoPath": "services/order/src/main/java/.../OrderService.java",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.be.idempotentGuard",
+          "m.bff.createOrder"
+        ],
+        "downstream": [
+          "m.data.insertOrderTx",
+          "m.be.publishOrderEvent"
+        ],
+        "related": []
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.data.redisDedupe",
+      "repoPath": "infra/redis/idem_keys.md",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.be.idempotentGuard",
+          "m.bff.createUploadToken"
+        ],
+        "downstream": [],
+        "related": [
+          "m.data.insertOrderTx"
+        ]
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.data.insertOrderTx",
+      "repoPath": "services/order/src/main/resources/mapper/OrderMapper.xml",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [
+          "m.bff.createOrder"
+        ],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.be.createOrder"
+        ],
+        "downstream": [
+          "m.be.publishOrderEvent"
+        ],
+        "related": [
+          "m.data.redisDedupe"
+        ]
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.be.publishOrderEvent",
+      "repoPath": "services/order/src/main/java/.../OrderEventPublisher.java",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [
+          "m.bff.createOrder"
+        ],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.be.createOrder",
+          "m.be.verifyUploadCallback"
+        ],
+        "downstream": [
+          "m.infra.mqRetry"
+        ],
+        "related": []
+      },
+      "confidence": 0
+    },
+    {
+      "methodId": "m.infra.mqRetry",
+      "repoPath": "infra/terraform/kafka_retry.tf",
+      "found": false,
+      "signatures": [],
+      "calls": [],
+      "suggestedLinks": {
+        "upstream": [],
+        "downstream": [],
+        "related": []
+      },
+      "currentLinks": {
+        "upstream": [
+          "m.be.publishOrderEvent"
+        ],
+        "downstream": [],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "confidence": 0
+    }
+  ],
+  "summary": {
+    "files": 5,
+    "matchedMethods": 5,
+    "signatures": 12,
+    "callEdges": 9
+  }
+}

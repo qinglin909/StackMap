@@ -45,7 +45,7 @@ global.addEventListener = () => {};
 global.confirm = () => false;
 
 // ---- 加载脚本 ----
-for (const f of ['data.js', 'core.js', 'cards.js', 'app.js']) {
+for (const f of ['data.js', 'core.js', 'v2.js', 'cards.js', 'views2.js', 'app.js']) {
   try { vm.runInThisContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), { filename: f }); }
   catch (e) { errors.push(`加载 ${f} 失败：${e.message}\n${e.stack}`); }
 }
@@ -63,7 +63,12 @@ const routes = [
   '#/entry/m.fe.uploadFile', '#/entry/m.fe.uploadFile?tab=why', '#/entry/m.fe.uploadFile?tab=alternatives',
   '#/entry/m.fe.uploadFile?tab=fallback', '#/entry/m.be.verifyUploadCallback?tab=chain',
   '#/entry/m.be.idempotentGuard?tab=examples', '#/entry/m.be.idempotentGuard?tab=pitfalls',
-  '#/cards', '#/cards/m.fe.uploadFile'
+  '#/cards', '#/cards/m.fe.uploadFile',
+  // 2.0 新增页面与 IDE 深链
+  '#/incidents', '#/incident/i.upload.callback', '#/drafts', '#/progress',
+  '#/impact', '#/impact?id=m.fe.uploadFile',
+  '#/entry/by-name/useUploadQueue?ref=apps/web/src/upload/useUploadQueue.ts&line=15',
+  '#/entry/m.fe.uploadFile?ref=apps/web/src/upload/uploadFileToOSS.ts&line=21'
 ];
 for (const r of routes) {
   global.location.hash = r;
@@ -148,6 +153,74 @@ KB.state.favorites = [{ key: 'k', methodId: m.id, methodName: m.name, layer: 'fr
 const md = KB.favoritesMarkdown();
 ok(md.includes('代码模板') && md.includes('监控项') && md.includes('前端 层'), '预案导出格式不完整');
 
+// ---- 2.0：F11 向量语义检索 ----
+ok(KB.sceneSearch('做文件上传').length > 0, '2.0 场景反查（文件上传）无结果');
+ok(KB.sceneSearch('防止重复下单').length > 0, '2.0 场景反查（幂等）无结果');
+const vecHit = KB.sceneSearch('做文件上传')[0];
+ok(vecHit && vecHit.score > 0 && vecHit.score <= 99, '向量相关度未在 0–99 区间');
+ok(KB.semanticMode() === 'local-tfidf', '默认应回退本地 TF-IDF 向量检索');
+const asyncRes = await KB.sceneSearchAsync('上传失败怎么重试');
+ok(Array.isArray(asyncRes) && asyncRes.length > 0, '未启用远程服务时异步检索应等价回退本地');
+
+// ---- 2.0：F12 事故录入 ----
+const inc = KB.incidentTemplate();
+Object.assign(inc, {
+  title: '冒烟测试事故', symptom: '上传回调重复', rootCause: '缺少幂等键', improvement: '补幂等兜底',
+  relatedMethodIds: [m.id], missingFallbacks: [{ layer: 'frontend', item: '无重试提示', expected: '应有前端重试提示' }]
+});
+ok(KB.validateIncident(inc).length === 0, '事故录入校验失败：' + KB.validateIncident(inc).join('；'));
+KB.saveIncident(inc);
+ok(KB.incidents().some((i) => i.id === inc.id), '本地录入的事故未出现在 KB.incidents()');
+ok(KB.incidentsOf(m.id).some((i) => i.id === inc.id), '事故未关联到方法（卡 8 读不到）');
+KB.state.incidentSelect = inc.id;
+ok(KB.cards.body(m, 7).includes('无重试提示'), '本地录入事故未出现在踩坑复盘卡（字段契约不一致）');
+ok(KB.incidentsMarkdown().includes('冒烟测试事故'), '事故导出 Markdown 缺内容');
+KB.deleteIncident(inc.id);
+ok(!KB.incidents().some((i) => i.id === inc.id), '删除事故未生效');
+
+// ---- 2.0：F13 草稿生成与人工审核门禁 ----
+const gen = await KB.generateDraft({ name: 'smokeDraft', layer: 'frontend', scene: '弱网下断点续传' });
+ok(gen.entry && gen.source === 'local-heuristic', '未配置 LLM 时应走本地启发式起草');
+const dv = KB.validateEntry(gen.entry);
+ok(dv.errors.length === 0, 'AI 草稿未通过验收校验：' + dv.errors.join('；'));
+const draft = KB.makeDraft({ name: 'smokeDraft' }, gen.entry, gen.source);
+ok(draft.status === 'draft', '新草稿状态应为待审核');
+ok(!KB.approveDraft(draft.id, 'tester').ok, '未人工核实的草稿不应允许入库（审核门禁失效）');
+draft.status = 'reviewed'; KB.saveDraft(draft);
+const approved = KB.approveDraft(draft.id, 'tester');
+ok(approved.ok, '已核实草稿批准入库失败：' + approved.message);
+ok(KB.byId(gen.entry.id) !== null, '批准后的条目未进入本地覆盖层');
+ok(KB.draftToMarkdown(draft).includes('四问草稿') && KB.draftToMarkdown(draft).includes('对比结论'), '草稿导出格式不完整');
+
+// ---- 2.0：F14 IDE 深链 ----
+ok(KB.resolveByName('useUploadQueue') !== null, '按方法名解析条目失败');
+ok(KB.deepLink(m, 'apps/web/src/x.ts', 12).includes('#/entry/' + m.id), '固定 id 深链格式错误');
+ok(KB.byNameDeepLink(m).includes('by-name'), '按名深链格式错误');
+
+// ---- 2.0：F15 links 骨架 ----
+const sk = KB.linksSkeleton();
+ok(sk && sk.entries.length >= 14, 'links 骨架未随快照打包');
+const sd = KB.skeletonDiff(KB.byId('m.fe.useUploadQueue'));
+ok(sd && sd.entry && sd.diff.downstream, '骨架差异计算失败');
+const ap = KB.applySkeleton('m.fe.useUploadQueue');
+ok(ap.ok, '采纳骨架建议失败：' + ap.message);
+ok((KB.byId('m.fe.useUploadQueue').links.downstream || []).length > 0, '采纳后 links 未更新');
+
+// ---- 2.0：F16 学习进度 ----
+const ci = KB.checkIn();
+ok(ci.ok, '今日打卡失败');
+const st = KB.progressStats();
+ok(st.streak >= 1 && st.total === KB.methods().length, '进度统计错误');
+ok(KB.weeklyReport().includes('学习周报') && KB.weeklyReport().includes('分层覆盖度'), '周报格式不完整');
+KB.toggleMastered(m.id);
+ok(KB.progressStats().mastered >= 1, '标记已掌握未生效');
+
+// ---- 2.0：F19 变更影响 ----
+const im = KB.impactOf('m.fe.uploadFile');
+ok(im && im.checklist.length > 0, '变更影响检查单为空');
+ok(im.chains.length > 0, '未聚合到受影响链路');
+ok(KB.impactMarkdown('m.fe.uploadFile').includes('PR 变更影响检查单'), '检查单导出失败');
+
 // ---- 输出 ----
 if (errors.length) {
   console.error(`\n✗ 冒烟测试失败，共 ${errors.length} 项：`);
@@ -156,3 +229,4 @@ if (errors.length) {
 }
 console.log(`✓ 页面渲染 ${routes.length} 个 / 8 类卡片 / 2 个 Markdown 导入 / ${KB.methods().length} 个条目校验`);
 console.log('✓ 决策树 END 路径全部有推荐方案；排查流步骤可达；过滤 / 场景反查 / 预案导出正常');
+console.log('✓ 2.0：向量检索 / 事故录入 / 草稿审核门禁 / IDE 深链 / links 骨架 / 打卡周报 / 变更影响');

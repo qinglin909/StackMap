@@ -1,4 +1,4 @@
-/* 栈析 · app.js — 页面视图、事件分发、启动 */
+/* StackMap · app.js — 页面视图、事件分发、启动（2.0 页面由 views2.js 提供） */
 (function () {
   'use strict';
   const KB = window.KB, C = KB.cards;
@@ -25,6 +25,7 @@
         <button class="btn btn-sm" data-action="go" data-route="#/cards/${E(m.id)}">卡片</button></div>
     </div>`;
   }
+  function badgeInline(html, cls) { return `<span class="badge ${cls || 'badge-soft'}">${html}</span>`; }
   function tagChip(t) {
     const active = KB.state.search.tags.indexOf(t) >= 0;
     return `<button class="chip-filter ${active ? 'active' : ''}" data-action="searchTag" data-tag="${E(t)}"># ${E(t)}</button>`;
@@ -86,10 +87,24 @@
   // ============================ 条目详情 ============================
   const TABS = [['what', '是什么', 'Q1'], ['why', '为什么用', 'Q2'], ['alternatives', '替代方案', 'Q3'], ['fallback', '兜底', 'Q4'], ['chain', '链路', ''], ['examples', '示例', ''], ['pitfalls', '踩坑', '']];
   function viewEntry(r) {
-    const m = KB.byId(r.p1);
+    let m = null, byName = false;
+    if (r.p1 === 'by-name' && r.p2) {
+      byName = true;
+      m = KB.resolveByName(r.p2);
+      if (!m) return notFound('IDE 深链未解析到条目：' + r.p2 + '（请到首页按名搜索）');
+    } else m = KB.byId(r.p1);
     if (!m) return notFound('找不到该条目：' + (r.p1 || '—'));
     const tab = r.qs.get('tab') || 'what';
-    let h = `<div class="detail-head mb16">
+    const ideRef = r.qs.get('ref'), ideLine = r.qs.get('line');
+    let h = '';
+    if (byName || ideRef) {
+      h += `<div class="callout ide-banner mb16"><span class="grow"><strong>来自 IDE 的跳转（F14）</strong> · ${byName ? '按方法名解析：' + E(r.p2) : '深链定位'}
+        ${ideRef ? ' · 源码 <code>' + E(ideRef) + (ideLine ? ':' + E(ideLine) : '') + '</code>' : ''}
+        → 已命中 <strong>${E(m.name)}</strong> ${KB.layerChip(m.layer)}</span>
+        <button class="btn btn-sm" data-action="copyDeepLink" data-id="${E(m.id)}" data-ref="${E(ideRef || m.repoPath)}" data-line="${E(ideLine || '')}">复制固定 id 深链</button>
+        <button class="btn btn-sm" data-action="copyByNameLink" data-id="${E(m.id)}" data-ref="${E(ideRef || m.repoPath)}" data-line="${E(ideLine || '')}">复制按名深链</button></div>`;
+    }
+    h += `<div class="detail-head mb16">
       <div class="row-wrap mb8"><span class="eyebrow tiny">条目详情 · 四问 + 链路</span><span class="grow"></span>${KB.statusBadge(m)}</div>
       <h1>${E(m.name)} ${KB.layerChip(m.layer)} <span class="tag">${E(m.module)}</span> <span class="tag">${E(m.stack || '—')}</span></h1>
       <div class="sig-line mono">${E(m.signature)}</div>
@@ -101,6 +116,8 @@
           ${KB.state.role === 'readonly' ? '<span class="badge badge-amber">只读模式 · 路径已脱敏</span>' : ''}</div>
         <div class="row-wrap">
           <button class="btn btn-sm" data-action="copy" data-text="${E(m.repoPath)}">${I('copy')} 复制路径</button>
+          <button class="btn btn-sm" data-action="copyDeepLink" data-id="${E(m.id)}" data-ref="${E(m.repoPath)}" data-line="">${I('link')} 复制 IDE 深链</button>
+          <button class="btn btn-sm" data-action="master" data-id="${E(m.id)}">${I('check')} ${KB.state.progress.mastered.indexOf(m.id) >= 0 ? '取消掌握' : '标记已掌握'}</button>
           <button class="btn btn-primary btn-sm" data-action="go" data-route="#/cards/${E(m.id)}">${I('cards')} 卡片学习</button>
           <button class="btn btn-sm" data-action="go" data-route="#/favorites">${I('star')} 我的预案</button>
           ${KB.canEdit() ? `<button class="btn btn-sm" data-action="editEntry" data-id="${E(m.id)}">${I('edit')} 编辑</button><button class="btn btn-sm btn-danger" data-action="deleteEntry" data-id="${E(m.id)}">${I('trash')} 删除</button>` : '<span class="badge badge-soft">只读用户：不可编辑</span>'}
@@ -251,20 +268,23 @@
     const q = KB.state.sceneQuery;
     const res = KB.state.sceneResult;
     let h = pageHead('场景反查', '输入一句场景，跨层聚合相关方法',
-      '本地语义近似：同义词扩展 + 标签/模块/摘要加权；二期可替换为 pgvector 向量检索（F11）。');
+      '2.0 向量语义检索：中英混合分词 → TF-IDF 向量 → 余弦相似度 + 同义词扩展；可切换 pgvector 远程检索（F11）。',
+      `<span class="badge ${KB.semanticMode() === 'pgvector' ? 'badge-accent' : 'badge-soft'}">${KB.semanticMode() === 'pgvector' ? 'pgvector 语义检索' : '本地 TF-IDF 向量'}</span>
+       <button class="btn btn-sm" data-action="serviceConfig">${I('tool')} 配置向量服务</button>`);
     h += `<div class="card mb16"><div class="row-wrap">
       <input id="sceneInput" class="plain-input grow" placeholder="例如：做文件上传 / 防止重复下单 / 上传回调总是失败" value="${E(q)}">
       <button class="btn btn-primary" data-action="sceneGo">${I('search')} 反查</button></div>
       <div class="row-wrap mt12"><span class="tiny dim">试试：</span>${KB.sceneExamples().map((x) => `<button class="chip-filter" data-action="sceneChip" data-q="${E(x)}">${E(x)}</button>`).join('')}</div></div>`;
     if (!q) return h + `<div class="empty">${I('scene')}<h3>从场景出发，而不是从方法名出发</h3><p>适合新人或 on-call 值班：不知道方法叫什么，只知道要做什么 / 出了什么现象。</p></div>`;
     if (!res || !res.length) return h + `<div class="empty"><h3>没有命中的方法</h3><p>换个说法，或到首页按层浏览。</p></div>`;
-    h += `<div class="callout mb16"><strong>「${E(q)}」</strong> 命中 ${res.length} 个方法，跨 ${new Set(res.map((x) => x.m.layer)).size} 层。以下按相关度排序并按层分组。</div>`;
+    if (KB.state.semanticNotice) h += `<div class="callout warn mb16">${E(KB.state.semanticNotice)}</div>`;
+    h += `<div class="callout mb16"><strong>「${E(q)}」</strong> 命中 ${res.length} 个方法，跨 ${new Set(res.map((x) => x.m.layer)).size} 层。按向量相关度排序并按层分组。</div>`;
     KB.LAYERS.forEach((l) => {
       const rows = res.filter((x) => x.m.layer === l);
       if (!rows.length) return;
       h += `<h3 class="mt16 mb8">${KB.layerChip(l)} <span class="dim small">${rows.length} 个</span></h3><div class="grid grid-2">`;
-      rows.forEach(({ m, score, hits }) => {
-        h += `<div class="entry-card"><div class="ec-top"><span class="badge badge-soft">相关度 ${score}</span><span class="grow"></span>${KB.statusBadge(m)}</div>
+      rows.forEach(({ m, score, hits, remote }) => {
+        h += `<div class="entry-card"><div class="ec-top"><span class="badge ${x.remote ? 'badge-accent' : 'badge-soft'}">${remote ? 'pgvector ' : ''}相关度 ${score}%</span><span class="grow"></span>${KB.statusBadge(m)}</div>
           <div><a class="ec-name" data-action="go" data-route="#/entry/${E(m.id)}">${E(m.name)}</a></div>
           <div class="ec-summary">${E(m.summary)}</div>
           <div class="row-wrap">${hits.slice(0, 4).map((t) => `<span class="tag active">${E(t)}</span>`).join('')}${(m.tags || []).slice(0, 2).map((t) => `<span class="tag"># ${E(t)}</span>`).join('')}</div>
@@ -429,6 +449,27 @@
         <span class="tiny dim">编辑以完整 JSON 形式进行，字段由 schema/method-entry.schema.json 约束。</span></div>
       <div class="callout mt12"><strong>同步流程：</strong>本地编辑 → 内容管理页出现「待同步」→ 编辑者把条目回写 content/methods.json → 运行 <code>node tools/build-snapshot.mjs</code> 重建快照 → 状态恢复「已同步」。</div></div>`;
 
+    // F15 自动抽取的 links 骨架
+    const sk = KB.linksSkeleton();
+    const diffRows = sk ? all.map((m) => ({ m, d: KB.skeletonDiff(m) })).filter((x) => x.d && x.d.changes > 0) : [];
+    h += `<div class="card mb16"><div class="panel-title">${I('link')}<h3>调用关系骨架（F15 · 自动抽取）</h3><span class="grow"></span>
+      ${KB.link('#/impact', '变更影响分析 →', 'btn btn-sm')}</div>
+      ${sk ? `<div class="row-wrap mb12">
+          ${badgeInline('解析器 ' + E(sk.parser || '—'), 'badge-soft')}
+          ${badgeInline('生成 ' + E(String(sk.generatedAt || '').slice(0, 19).replace('T', ' ')), 'badge-soft')}
+          ${badgeInline('扫描 ' + (sk.summary ? sk.summary.files : 0) + ' 文件 / ' + (sk.summary ? sk.summary.signatures : 0) + ' 签名 / ' + (sk.summary ? sk.summary.callEdges : 0) + ' 调用边', 'badge-soft')}
+          ${badgeInline(diffRows.length + ' 条与人工 links 有差异', diffRows.length ? 'badge-amber' : 'badge-green')}
+        </div>
+        <div class="tiny dim mb12">由 <code>node tools/extract-links.mjs</code> 从 samples/ 源码抽取，生成 content/generated/links.skeleton.json，随快照一起打包。<strong>骨架只提供建议，绝不自动覆盖人工 links。</strong></div>
+        ${diffRows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>条目</th><th>upstream</th><th>downstream</th><th>related</th><th></th></tr></thead><tbody>
+        ${diffRows.slice(0, 8).map(({ m, d }) => `<tr><td><strong>${E(m.name)}</strong></td>
+          ${['upstream', 'downstream', 'related'].map((k) => `<td class="small"><span class="txt-green">+${d.diff[k].added.length}</span> / <span class="txt-red">−${d.diff[k].removed.length}</span></td>`).join('')}
+          <td class="nowrap">${KB.canEdit() ? `<button class="btn btn-sm" data-action="applySkeleton" data-id="${E(m.id)}">采纳建议</button>` : ''}
+            <button class="btn btn-sm" data-action="go" data-route="#/impact?id=${E(m.id)}">影响面</button></td></tr>`).join('')}
+        </tbody></table></div>` : '<div class="callout good">所有条目的 links 与抽取建议一致。</div>'}
+        ${diffRows.length > 8 ? `<div class="tiny dim mt8">… 另有 ${diffRows.length - 8} 条，可在「变更影响分析」逐条查看。</div>` : ''}`
+        : `<div class="callout warn">尚未生成骨架。运行 <code>node tools/extract-links.mjs</code>，再执行 <code>npm run build</code> 重建快照即可在离线模式使用。</div>`}</div>`;
+
     // 权限
     h += `<div class="card"><div class="panel-title">${I('layers')}<h3>权限与合规</h3></div>
       <div class="tbl-wrap"><table class="tbl"><thead><tr><th>角色</th><th>浏览 / 搜索 / 卡片</th><th>收藏预案</th><th>导入 / 编辑 / 删除</th><th>导出备份</th><th>路径脱敏</th></tr></thead><tbody>
@@ -443,6 +484,14 @@
   function renderMain() {
     const main = document.getElementById('main');
     const r = KB.state.route;
+    if (KB.track) {
+      if (r.name === 'entry' && r.p1) {
+        const tm = r.p1 === 'by-name' ? (KB.resolveByName && KB.resolveByName(r.p2)) : KB.byId(r.p1);
+        if (tm) KB.track('view', { id: tm.id });
+      }
+      if (r.name === 'cards' && r.p1) KB.track('card', { id: r.p1 });
+      if (r.name === 'impact' && r.qs.get('id')) KB.track('impact', { id: r.qs.get('id') });
+    }
     let html;
     switch (r.name) {
       case 'home': html = viewHome(); break;
@@ -453,6 +502,8 @@
       case 'troubleshoot': html = viewTroubleshoot(r); break;
       case 'favorites': html = viewFavorites(); break;
       case 'admin': html = viewAdmin(); break;
+      case 'incidents': case 'incident': case 'drafts': case 'progress': case 'impact':
+        html = KB.views2.view(r.name, r); break;
       default: html = notFound('未知页面：' + r.name);
     }
     main.innerHTML = html;
@@ -481,6 +532,8 @@
     const a = el.dataset.action;
     const d = el.dataset;
     if (a === 'overlayClose') { if (e.target === el) KB.closeModal(); return; }
+    // 2.0 页面（事故 / 草稿 / 进度 / 影响 / 服务配置 / 深链）委托给 views2.js
+    if (KB.views2 && KB.views2.action(a, d, el, rerender)) return;
 
     switch (a) {
       case 'go':
@@ -502,7 +555,8 @@
       case 'decision': {
         const st = KB.state.decision[d.id] || (KB.state.decision[d.id] = { answers: {}, cur: null, done: false });
         st.answers[d.q] = d.value;
-        if (d.next === 'END') st.done = true; else st.cur = d.next;
+        if (d.next === 'END') { st.done = true; if (KB.track) KB.track('decision', { id: d.id }); }
+        else st.cur = d.next;
         rerender(); break;
       }
       case 'decisionReset': delete KB.state.decision[d.id]; rerender(); break;
@@ -514,7 +568,8 @@
         const opt = step && step.options.find((o) => o.next === d.next);
         st.answers.push({ step: d.step, label: opt ? opt.label : d.next, hint: d.hint || (opt ? opt.hint : '') });
         st.hint = d.hint || '';
-        if (d.next === 'RESULT') st.done = true; else st.cur = d.next;
+        if (d.next === 'RESULT') { st.done = true; if (KB.track) KB.track('troubleshoot', { id: d.flow }); }
+        else st.cur = d.next;
         rerender(); break;
       }
       case 'trReset': setTrouble(d.id, (KB.state.trouble[d.id] || {}).flowId); rerender(); break;
@@ -526,7 +581,7 @@
       case 'zoomReset': KB.state.chainView = { scale: 1, tx: 0, ty: 0 }; applyChainTransform(); break;
       case 'fav': {
         const m = KB.byId(d.id); const fb = m && m.fallback[parseInt(d.idx, 10)];
-        if (m && fb) KB.toggleFav(m.id, fb); break;
+        if (m && fb) { KB.toggleFav(m.id, fb); if (KB.track) KB.track('fav', { id: m.id }); } break;
       }
       case 'favRemove': KB.removeFav(d.key); break;
       case 'fbAll': {
@@ -554,7 +609,9 @@
       case 'sceneGo': case 'sceneChip': {
         const inp = document.getElementById('sceneInput');
         const q = a === 'sceneChip' ? d.q : (inp ? inp.value.trim() : '');
-        KB.state.sceneQuery = q; KB.state.sceneResult = KB.sceneSearch(q); rerender();
+        KB.state.sceneQuery = q; KB.state.sceneResult = KB.sceneSearch(q);
+        KB.state.semanticNotice = ''; rerender();
+        if (KB.sceneSearchAsync) KB.sceneSearchAsync(q).then((rs) => { KB.state.sceneResult = rs; rerender(); });
         break;
       }
       case 'exportMd': {
@@ -660,6 +717,7 @@
   document.addEventListener('click', click);
   document.addEventListener('change', function (e) {
     const el = e.target;
+    if (KB.views2 && KB.views2.change(el, rerender)) return;
     const a = el.dataset ? el.dataset.action : '';
     if (a === 'role') { KB.setRole(el.value); return; }
     if (el.id === 'roleSelect') { KB.setRole(el.value); return; }
@@ -699,6 +757,7 @@
       KB.state.sceneQuery = e.target.value.trim();
       KB.state.sceneResult = KB.sceneSearch(KB.state.sceneQuery);
       rerender();
+      if (KB.sceneSearchAsync) KB.sceneSearchAsync(KB.state.sceneQuery).then((rs) => { KB.state.sceneResult = rs; rerender(); });
     }
   });
 

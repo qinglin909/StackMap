@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>栈析 · 全栈方法知识库</title>
+  <title>StackMap · 全栈方法知识库</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -38,7 +38,7 @@
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark"><svg><use href="#i-layers"/></svg></div>
-        <div class="brand-text"><strong>栈析</strong><span>全栈方法知识库</span></div>
+        <div class="brand-text"><strong>StackMap <span class="ver-pill">2.0</span></strong><span>全栈方法知识库 · 栈析</span></div>
       </div>
 
       <div class="nav-group-label">浏览</div>
@@ -47,17 +47,21 @@
         <a class="nav-item" data-action="go" data-route="#/chains"><svg><use href="#i-chain"/></svg><span>链路视图</span></a>
         <a class="nav-item" data-action="go" data-route="#/scene"><svg><use href="#i-scene"/></svg><span>场景反查</span></a>
         <a class="nav-item" data-action="go" data-route="#/troubleshoot"><svg><use href="#i-tool"/></svg><span>故障排查</span></a>
+        <a class="nav-item" data-action="go" data-route="#/incidents"><svg><use href="#i-alert"/></svg><span>事故复盘</span><em class="nav-note">F12</em></a>
       </nav>
 
       <div class="nav-group-label">学习</div>
       <nav class="nav" id="navLearn">
         <a class="nav-item" data-action="go" data-route="#/cards"><svg><use href="#i-cards"/></svg><span>卡片学习</span><em class="nav-note">8 卡</em></a>
         <a class="nav-item" data-action="go" data-route="#/favorites"><svg><use href="#i-star"/></svg><span>我的预案</span><em class="nav-note" id="favCount">0</em></a>
+        <a class="nav-item" data-action="go" data-route="#/progress"><svg><use href="#i-check"/></svg><span>学习进度</span><em class="nav-note">F16</em></a>
       </nav>
 
       <div class="nav-group-label">管理</div>
       <nav class="nav" id="navAdmin">
         <a class="nav-item" data-action="go" data-route="#/admin"><svg><use href="#i-db"/></svg><span>内容管理</span></a>
+        <a class="nav-item" data-action="go" data-route="#/drafts"><svg><use href="#i-file"/></svg><span>AI 草稿审核</span><em class="nav-note">F13</em></a>
+        <a class="nav-item" data-action="go" data-route="#/impact"><svg><use href="#i-layers"/></svg><span>变更影响分析</span><em class="nav-note">F19</em></a>
       </nav>
 
       <div class="sidebar-foot">
@@ -102,7 +106,9 @@
 
   <script src="data.js"></script>
   <script src="core.js"></script>
+  <script src="v2.js"></script>
   <script src="cards.js"></script>
+  <script src="views2.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
-/* 栈析 · core.js
+/* StackMap · core.js
  * 状态、仓库加载、校验、Markdown/JSON 导入解析、路由、收藏、通用 UI 能力。
  * 事实源是 content/*.json；data.js 只是 file:// 打开时的离线快照。
+ * 2.0 的新增能力在 v2.js（逻辑）与 views2.js（页面），本文件只保留核心层。
  */
 (function () {
   'use strict';
@@ -63,7 +64,9 @@
     pendingScroll: null,
     sceneQuery: '',
     sceneResult: null,
-    importPreview: null
+    importPreview: null,
+    impactSelect: '',
+    draftReviewer: ''
   };
 
   KB.canEdit = () => KB.state.role === 'editor' || KB.state.role === 'admin';
@@ -76,6 +79,7 @@
     incidents: 'content/incidents.json',
     troubleshooting: 'content/troubleshooting.json'
   };
+  const SKELETON_PATH = 'content/generated/links.skeleton.json';
   async function fromRepo() {
     const out = {};
     await Promise.all(Object.entries(FILES).map(async ([k, p]) => {
@@ -83,11 +87,18 @@
       if (!r.ok) throw new Error(p + ' -> ' + r.status);
       out[k] = await r.json();
     }));
+    // F15 抽取骨架是可选生成物：缺失时不影响主内容加载
+    let skeleton = null;
+    try {
+      const r = await fetch(SKELETON_PATH, { cache: 'no-store' });
+      if (r.ok) skeleton = await r.json();
+    } catch (e) { /* 离线或未运行抽取脚本 */ }
     return {
       methods: out.methods.entries || [],
       chains: out.chains.chains || [],
       incidents: out.incidents.incidents || [],
       troubleshooting: out.troubleshooting,
+      linksSkeleton: skeleton,
       project: out.methods.project,
       generatedAt: new Date().toISOString()
     };
@@ -98,6 +109,7 @@
     return {
       methods: s.methods || [], chains: s.chains || [], incidents: s.incidents || [],
       troubleshooting: s.troubleshooting || { flows: [], sceneSynonyms: {}, sceneExamples: [] },
+      linksSkeleton: s.linksSkeleton || null,
       project: s.project, generatedAt: s.generatedAt
     };
   }
@@ -421,7 +433,7 @@
   KB.favoritesMarkdown = function () {
     const groups = {};
     KB.state.favorites.forEach((f) => { (groups[f.methodName] = groups[f.methodName] || []).push(f); });
-    let md = `# 我的分层兜底预案\n\n> 导出时间：${new Date().toLocaleString('zh-CN')}  ·  策略数：${KB.state.favorites.length}  ·  覆盖方法：${Object.keys(groups).length}\n> 来源：栈析 · 全栈方法知识库（内容与仓库同源）\n\n`;
+    let md = `# 我的分层兜底预案\n\n> 导出时间：${new Date().toLocaleString('zh-CN')}  ·  策略数：${KB.state.favorites.length}  ·  覆盖方法：${Object.keys(groups).length}\n> 来源：StackMap · 全栈方法知识库（内容与仓库同源）\n\n`;
     if (!KB.state.favorites.length) return md + '_（暂无收藏，去「分层兜底」卡点击「加入我的预案」）_\n';
     Object.entries(groups).forEach(([name, rows]) => {
       md += `## ${name}\n\n`;
@@ -565,7 +577,11 @@
   };
 
   // ---------- 渲染外壳 ----------
-  const NAV_KEY = { home: 'home', entry: 'home', scene: 'scene', troubleshoot: 'troubleshoot', chains: 'chains', chain: 'chains', cards: 'cards', favorites: 'favorites', admin: 'admin', incident: 'troubleshoot' };
+  const NAV_KEY = {
+    home: 'home', entry: 'home', scene: 'scene', troubleshoot: 'troubleshoot',
+    chains: 'chains', chain: 'chains', cards: 'cards', favorites: 'favorites', admin: 'admin',
+    incidents: 'incidents', incident: 'incidents', drafts: 'drafts', progress: 'progress', impact: 'impact'
+  };
   KB.renderShell = function () {
     const key = NAV_KEY[KB.state.route.name] || 'home';
     document.querySelectorAll('.nav-item').forEach((el) => {
