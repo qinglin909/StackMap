@@ -1,0 +1,3876 @@
+/* 自动生成，请勿手改。运行：node tools/build-snapshot.mjs
+ * 事实源：content/*.json ；本文件仅用于 file:// 直接打开时的离线兜底。
+ */
+window.__REPO_SNAPSHOT__ = {
+  "generatedAt": "2026-11-13T09:49:37.538Z",
+  "project": "云枢 · 订单与附件平台",
+  "methods": [
+    {
+      "id": "m.fe.useUploadQueue",
+      "name": "useUploadQueue",
+      "signature": "useUploadQueue(opts: { concurrency?: number; retry?: number; onSettled?: (r: UploadResult[]) => void }): UploadQueue",
+      "layer": "frontend",
+      "stack": "React 18 + TypeScript",
+      "module": "文件上传",
+      "summary": "把批量附件上传收敛成一个可取消、可重试、可观察的队列 Hook。",
+      "what": {
+        "params": [
+          {
+            "name": "opts.concurrency",
+            "type": "number",
+            "desc": "并发分片数，默认 3"
+          },
+          {
+            "name": "opts.retry",
+            "type": "number",
+            "desc": "单文件失败重试次数，默认 2"
+          },
+          {
+            "name": "opts.onSettled",
+            "type": "callback",
+            "desc": "全部结束（成功或最终失败）后触发"
+          }
+        ],
+        "returns": "UploadQueue：{ tasks, add, cancel, retryFailed, progress, status }",
+        "sideEffects": [
+          "在内存中维护任务状态机",
+          "组件卸载时 AbortController.abort()",
+          "上报 upload_queue_settle 埋点"
+        ],
+        "callers": [
+          "AttachmentPanel",
+          "OrderAttachments"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "一次订单需附带 1–20 个附件",
+          "弱网环境下用户反复点击重传",
+          "上传中途切换路由"
+        ],
+        "problemsSolved": [
+          "避免 N 个并发请求打满浏览器连接池",
+          "避免重复上传同一文件造成 OSS 碎片",
+          "让失败可定位到具体文件而不是整批失败"
+        ],
+        "preconditions": [
+          "token 接口可用且返回有效期 ≥ 5min",
+          "浏览器支持 AbortController",
+          "文件已在本地完成 hash 计算"
+        ],
+        "layerReason": "并发控制与取消属于用户交互生命周期，只有前端能感知路由切换与组件卸载；放到 BFF 会丢失上下文。",
+        "counterExample": {
+          "title": "不用队列，直接 Promise.all",
+          "desc": "20 个文件同时直传，弱网下 6 个连接被浏览器丢弃，用户只看到整体失败；重试时又生成 20 个新 objectKey，产生孤立对象。",
+          "code": "await Promise.all(files.map(f => uploadFileToOSS(f))); // 无并发上限 / 无取消 / 无单文件重试"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "逐个串行上传",
+          "layer": "frontend",
+          "pros": [
+            "实现最简单",
+            "不会打满连接池"
+          ],
+          "cons": [
+            "20 个文件耗时线性增长",
+            "一个卡住阻塞整批"
+          ],
+          "whenToUse": "附件数量恒定为 1–2 个的内部工具",
+          "migrationCost": "低（1 人日）",
+          "affectedLayers": [
+            "frontend"
+          ],
+          "codeSnippet": "for (const f of files) await uploadFileToOSS(f);"
+        },
+        {
+          "name": "浏览器端 Web Worker 队列",
+          "layer": "frontend",
+          "pros": [
+            "hash 计算不阻塞主线程",
+            "大文件体验更好"
+          ],
+          "cons": [
+            "增加构建与通信复杂度",
+            "调试成本高"
+          ],
+          "whenToUse": "单文件普遍 > 100MB 且主线程有动画卡顿投诉",
+          "migrationCost": "中（3 人日）",
+          "affectedLayers": [
+            "frontend"
+          ],
+          "codeSnippet": "const w = new Worker('hash.worker.ts');\nw.postMessage(file);"
+        },
+        {
+          "name": "BFF 侧聚合上传",
+          "layer": "bff",
+          "pros": [
+            "前端逻辑极薄",
+            "可做服务端统一限流"
+          ],
+          "cons": [
+            "所有文件流量穿透 BFF，带宽成本上升",
+            "失去直传 OSS 的收益"
+          ],
+          "whenToUse": "强合规要求文件必须过内网网关时",
+          "migrationCost": "高（5 人日 + 网关扩容）",
+          "affectedLayers": [
+            "frontend",
+            "bff",
+            "infra"
+          ],
+          "codeSnippet": "POST /api/upload/stream  // multipart → BFF → OSS"
+        }
+      ],
+      "comparisonConclusion": "当附件数量 ≥ 3 且允许直传 OSS 时选当前队列方案；若附件恒定为 1–2 个的内部工具，则改用串行上传以省掉状态机；只有在单文件普遍超过 100MB 且主线程卡顿可复现的条件下，才升级为 Web Worker 队列；若合规要求文件必须过内网网关，则改用 BFF 聚合上传，但需同步评估带宽成本。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "单文件上传失败 / 网络闪断",
+          "strategy": "指数退避重试 2 次，仍失败则把任务标记为 failed 并保留本地 File 引用，允许用户手动重试而不重算 hash",
+          "codeSnippet": "await retry(fn, { retries: 2, backoff: 'exp', signal });\nmarkFailed(task.id, { keepFileRef: true });",
+          "monitoring": "upload_task_failed_total{reason}、重试后成功率"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "token 接口超时或 5xx",
+          "strategy": "队列整体进入 paused，按 30s 间隔探测 token 服务，恢复后自动 resume，不吞掉用户已选文件",
+          "codeSnippet": "queue.pause('TOKEN_UNAVAILABLE');\nawait waitForHealthy('/api/upload/token', { interval: 30_000 });\nqueue.resume();",
+          "monitoring": "upload_token_error_rate、队列 paused 时长"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "回调丢失导致任务永不 settle",
+          "strategy": "前端 90s 未收到终态时主动查询 /api/upload/status?key=，以后端对象存在性为准收敛状态",
+          "codeSnippet": "const st = await fetch('/api/upload/status?key=' + key);\nif (st.objectExists) queue.markSucceeded(task.id);",
+          "monitoring": "upload_pending_over_90s、主动查询命中率"
+        },
+        {
+          "layer": "data",
+          "failureMode": "本地 hash 缓存丢失造成重复上传",
+          "strategy": "以 fileHash + size 为幂等键，重传前先查 dedupe 表，命中则直接复用既有 objectKey",
+          "codeSnippet": "const existing = await api.lookupByHash(hash, size);\nif (existing) return existing.objectKey;",
+          "monitoring": "upload_dedupe_hit_ratio"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "OSS 区域不可用",
+          "strategy": "切到备用区域 bucket，并在任务上打 region=backup 供事后对账",
+          "codeSnippet": "const bucket = health.ossPrimary ? PRIMARY : BACKUP;\nawait put(bucket, key, file);",
+          "monitoring": "oss_5xx_rate、跨区域切换次数"
+        }
+      ],
+      "pitfalls": [
+        "onSettled 里不要再触发 add，否则微任务循环",
+        "组件卸载后 AbortController 已 abort，重试必须换新 signal",
+        "fileHash 计算要包含 size，仅有内容 hash 在截断文件上会误判"
+      ],
+      "tags": [
+        "上传",
+        "队列",
+        "并发控制",
+        "断点续传"
+      ],
+      "repoPath": "apps/web/src/upload/useUploadQueue.ts",
+      "links": {
+        "upstream": [],
+        "downstream": [
+          "m.fe.uploadFile",
+          "m.bff.createUploadToken"
+        ],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "批量附件上传并允许中途取消",
+          "code": "const q = useUploadQueue({ concurrency: 3, retry: 2 });\nq.add(files);\n// 路由离开时\nuseEffect(() => () => q.cancel('ROUTE_LEAVE'), []);",
+          "explain": "队列把取消语义收敛到一处，避免每个上传任务各自处理卸载。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "一次要传的文件通常有几个？",
+            "options": [
+              {
+                "label": "1–2 个",
+                "value": "few",
+                "next": "q2"
+              },
+              {
+                "label": "3 个以上",
+                "value": "many",
+                "next": "q2"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否允许文件直传对象存储（不过业务网关）？",
+            "options": [
+              {
+                "label": "允许",
+                "value": "direct",
+                "next": "q3"
+              },
+              {
+                "label": "不允许，必须过内网",
+                "value": "gateway",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "question": "单文件普遍超过 100MB 且主线程卡顿吗？",
+            "options": [
+              {
+                "label": "是",
+                "value": "huge",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "normal",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q2": "gateway"
+            },
+            "result": "BFF 侧聚合上传",
+            "reason": "合规要求文件必须过内网网关，直传方案不可用；需同步评估网关带宽成本。"
+          },
+          {
+            "when": {
+              "q1": "few",
+              "q2": "direct"
+            },
+            "result": "逐个串行上传",
+            "reason": "文件量恒定为 1–2 个，队列状态机的收益不足以抵消维护成本。"
+          },
+          {
+            "when": {
+              "q1": "many",
+              "q2": "direct",
+              "q3": "huge"
+            },
+            "result": "浏览器端 Web Worker 队列",
+            "reason": "大文件 hash 会阻塞主线程，需要把计算移出主线程。"
+          },
+          {
+            "when": {
+              "q1": "many",
+              "q2": "direct",
+              "q3": "normal"
+            },
+            "result": "保留当前 useUploadQueue",
+            "reason": "批量 + 直传 + 常规文件大小，正是队列方案的设计区间。"
+          }
+        ],
+        "defaultResult": "保留当前 useUploadQueue",
+        "defaultReason": "未命中特殊条件，按默认设计区间处理。"
+      },
+      "updatedAt": "2026-09-18",
+      "repoUpdatedAt": "2026-10-28",
+      "lastCodeChangeAt": "2026-10-28"
+    },
+    {
+      "id": "m.fe.uploadFile",
+      "name": "uploadFileToOSS",
+      "signature": "uploadFileToOSS(file: File, opts: { token: UploadToken; onProgress?: (p: number) => void }): Promise<UploadResult>",
+      "layer": "frontend",
+      "stack": "TypeScript",
+      "module": "文件上传",
+      "summary": "用后端签发的临时凭证把单个文件直传对象存储，业务服务器不承载文件流量。",
+      "what": {
+        "params": [
+          {
+            "name": "file",
+            "type": "File",
+            "desc": "浏览器 File 对象"
+          },
+          {
+            "name": "opts.token",
+            "type": "UploadToken",
+            "desc": "BFF 签发的预签名凭证，含 key / policy / expireAt"
+          }
+        ],
+        "returns": "Promise<UploadResult>：{ objectKey, etag, size, durationMs }",
+        "sideEffects": [
+          "向 OSS 发起 PUT 请求",
+          "写 progress 事件",
+          "触发 upload_single_done 埋点"
+        ],
+        "callers": [
+          "useUploadQueue"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "订单附件上传",
+          "头像/凭证图片上传"
+        ],
+        "problemsSolved": [
+          "避免文件流量穿透应用服务器",
+          "凭证短期有效，前端不持有长期密钥",
+          "上传进度可本地计算"
+        ],
+        "preconditions": [
+          "token 未过期且 key 与文件 hash 绑定",
+          "CORS 白名单已配置",
+          "浏览器支持 XMLHttpRequest.upload 进度事件"
+        ],
+        "layerReason": "直传发生在浏览器与 OSS 之间，进度与取消只能由前端持有；后端只负责签发凭证。",
+        "counterExample": {
+          "title": "把文件 POST 给后端再转发",
+          "desc": "大文件占用 BFF 连接池与内存，超时后前端无法判断对象是否已落盘，重试产生重复对象。",
+          "code": "await fetch('/api/upload', { method: 'POST', body: formData }); // 全链路持有文件字节"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "分片上传 + 断点续传",
+          "layer": "frontend",
+          "pros": [
+            "弱网成功率显著提升",
+            "支持暂停续传"
+          ],
+          "cons": [
+            "需要维护 uploadId 与分片清单",
+            "代码量翻倍"
+          ],
+          "whenToUse": "单文件 > 50MB 或移动端弱网占比 > 15%",
+          "migrationCost": "中（4 人日）",
+          "affectedLayers": [
+            "frontend",
+            "backend"
+          ],
+          "codeSnippet": "const uploadId = await initMultipart(key);\nawait Promise.all(chunks.map(c => putPart(uploadId, c)));"
+        },
+        {
+          "name": "服务端代理上传（BFF 转发）",
+          "layer": "bff",
+          "pros": [
+            "前端无需处理 CORS 与凭证",
+            "可做统一病毒扫描"
+          ],
+          "cons": [
+            "带宽与连接数成本翻倍",
+            "无法直传收益"
+          ],
+          "whenToUse": "内网合规或需要上传前内容审查",
+          "migrationCost": "高（5 人日 + 容量评估）",
+          "affectedLayers": [
+            "frontend",
+            "bff",
+            "infra"
+          ],
+          "codeSnippet": "POST /api/upload/proxy  // BFF stream → OSS"
+        },
+        {
+          "name": "Base64 塞进业务 JSON",
+          "layer": "frontend",
+          "pros": [
+            "一次请求搞定"
+          ],
+          "cons": [
+            "体积膨胀 33%",
+            "网关 body 限制直接打爆"
+          ],
+          "whenToUse": "仅限 < 64KB 的极小图标",
+          "migrationCost": "低（0.5 人日）",
+          "affectedLayers": [
+            "frontend",
+            "bff"
+          ],
+          "codeSnippet": "body: JSON.stringify({ icon: await toBase64(file) })"
+        }
+      ],
+      "comparisonConclusion": "当文件小于 50MB 且允许直传时选当前一次性 PUT；若单文件普遍大于 50MB 或弱网占比超过 15%，则改用分片上传并同步补后端分片合并接口；若合规要求上传前内容审查，则改用 BFF 代理上传；只有在体积恒小于 64KB 的图标场景下，才允许 Base64 内联，其余条件下一律禁止。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "token 在上传中途过期",
+          "strategy": "捕获 403 后重新取 token，复用同一 objectKey 续传，不新建 key",
+          "codeSnippet": "if (res.status === 403) {\n  const t = await refreshToken(key);\n  return putWithToken(t, file, { key });\n}",
+          "monitoring": "upload_token_expired_midflight、续传成功率"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "签发凭证接口不可用",
+          "strategy": "前端退避重试并在 UI 明确提示「上传暂不可用」，禁止降级为明文直传",
+          "codeSnippet": "throw new UploadUnavailableError('TOKEN_SERVICE_DOWN');\n// 严禁 fallback 到长期密钥",
+          "monitoring": "token_endpoint_availability、降级尝试拦截数"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "回调未到达，前端误判成功",
+          "strategy": "前端以 /api/upload/status 二次确认为准，后端回调做幂等 upsert",
+          "codeSnippet": "const ok = await confirmObject(key, etag);\nif (!ok) markPending(key);",
+          "monitoring": "callback_missing_total、状态确认不一致数"
+        },
+        {
+          "layer": "data",
+          "failureMode": "同一文件生成多个 objectKey",
+          "strategy": "key 由 fileHash + size 确定性生成，数据库加唯一索引兜底",
+          "codeSnippet": "const key = `up/${sha256}/${size}/${name}`;\nUNIQUE INDEX uk_object_key (object_key)",
+          "monitoring": "orphan_object_count"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "OSS PUT 返回 5xx",
+          "strategy": "指数退避重试 3 次后切换备用区域，并写死信队列供对账",
+          "codeSnippet": "await retry(() => put(region, key, file), { times: 3 });\nawait dlq.push({ key, reason: 'OSS_5XX' });",
+          "monitoring": "oss_5xx_rate、dlq_depth"
+        }
+      ],
+      "pitfalls": [
+        "PUT 的 Content-Type 必须与 policy 中一致，否则签名校验失败",
+        "进度事件在 fetch 下不可用，需用 XMLHttpRequest",
+        "objectKey 里含中文要先 encodeURIComponent"
+      ],
+      "tags": [
+        "上传",
+        "OSS",
+        "直传",
+        "预签名"
+      ],
+      "repoPath": "apps/web/src/upload/uploadFileToOSS.ts",
+      "links": {
+        "upstream": [
+          "m.fe.useUploadQueue"
+        ],
+        "downstream": [
+          "m.bff.createUploadToken",
+          "m.infra.ossLifecycle"
+        ],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "带进度条的单个文件上传",
+          "code": "const xhr = new XMLHttpRequest();\nxhr.upload.onprogress = e => setPct(e.loaded / e.total);\nxhr.open('PUT', token.url);\nxhr.send(file);",
+          "explain": "进度来自浏览器本地字节计数，不依赖服务端推送。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "单文件常见大小？",
+            "options": [
+              {
+                "label": "小于 50MB",
+                "value": "small",
+                "next": "q2"
+              },
+              {
+                "label": "大于 50MB",
+                "value": "large",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否要求上传前做内容审查或禁止外网直传？",
+            "options": [
+              {
+                "label": "是",
+                "value": "audit",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "free",
+                "next": "q3"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "question": "是否是小于 64KB 的图标类资源？",
+            "options": [
+              {
+                "label": "是",
+                "value": "icon",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "normal",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "large"
+            },
+            "result": "分片上传 + 断点续传",
+            "reason": "大文件一次性 PUT 在弱网下失败率高，必须可续传。"
+          },
+          {
+            "when": {
+              "q2": "audit"
+            },
+            "result": "服务端代理上传（BFF 转发）",
+            "reason": "需要在文件落盘前做审查，直传绕过审查点。"
+          },
+          {
+            "when": {
+              "q3": "icon"
+            },
+            "result": "Base64 内联",
+            "reason": "极小资源内联可减少一次请求，且不会触碰 body 限制。"
+          },
+          {
+            "when": {
+              "q1": "small",
+              "q2": "free",
+              "q3": "normal"
+            },
+            "result": "保留当前一次性直传 PUT",
+            "reason": "常规大小、无审查要求，直传是成本与复杂度最优解。"
+          }
+        ],
+        "defaultResult": "保留当前一次性直传 PUT",
+        "defaultReason": "默认落在直传方案的设计区间。"
+      },
+      "updatedAt": "2026-10-30",
+      "repoUpdatedAt": "2026-10-30",
+      "lastCodeChangeAt": "2026-11-05"
+    },
+    {
+      "id": "m.bff.createUploadToken",
+      "name": "POST /api/upload/token",
+      "signature": "createUploadToken(req: { fileName: string; size: number; hash: string }, ctx: UserCtx): Promise<UploadToken>",
+      "layer": "bff",
+      "stack": "Node.js + Fastify",
+      "module": "文件上传",
+      "summary": "聚合鉴权、配额与去重查询后，向后端换取一次性上传凭证。",
+      "what": {
+        "params": [
+          {
+            "name": "req.hash",
+            "type": "string",
+            "desc": "前端计算的文件内容 hash"
+          },
+          {
+            "name": "ctx.user",
+            "type": "UserCtx",
+            "desc": "登录态与租户信息"
+          }
+        ],
+        "returns": "UploadToken：{ url, key, policy, expireAt, region }",
+        "sideEffects": [
+          "写配额计数",
+          "读 dedupe 表",
+          "调用后端签发服务"
+        ],
+        "callers": [
+          "useUploadQueue",
+          "uploadFileToOSS"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "浏览器需要上传凭证",
+          "上传前必须校验用户配额与文件类型"
+        ],
+        "problemsSolved": [
+          "前端不接触长期密钥",
+          "把鉴权/配额/去重三件事收敛到一次往返",
+          "屏蔽后端签发服务分区细节"
+        ],
+        "preconditions": [
+          "网关已注入 UserCtx",
+          "配额服务可用",
+          "tenantId 必须透传到后端签名策略"
+        ],
+        "layerReason": "BFF 是唯一同时持有用户会话与后端服务发现能力的一层，签发凭证前的鉴权与配额适合放这里。",
+        "counterExample": {
+          "title": "前端直连后端签发服务",
+          "desc": "需要把长期密钥或内网地址暴露给浏览器，且无法按租户做配额裁剪。",
+          "code": "fetch('http://sign-svc.internal/token', { headers: { key: LONG_LIVED_KEY } });"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "前端直接向 OSS 申请 STS",
+          "layer": "frontend",
+          "pros": [
+            "少一跳"
+          ],
+          "cons": [
+            "长期密钥外泄风险",
+            "无法做租户级配额"
+          ],
+          "whenToUse": "纯静态演示站、无租户概念",
+          "migrationCost": "低但风险高",
+          "affectedLayers": [
+            "frontend",
+            "infra"
+          ],
+          "codeSnippet": "const sts = await oss.assumeRole(...); // 密钥在浏览器"
+        },
+        {
+          "name": "由后端服务直接签发（跳过 BFF）",
+          "layer": "backend",
+          "pros": [
+            "链路更短"
+          ],
+          "cons": [
+            "后端需要理解会话与租户语义",
+            "鉴权逻辑重复"
+          ],
+          "whenToUse": "单租户内部系统且已有统一网关鉴权",
+          "migrationCost": "中（2 人日）",
+          "affectedLayers": [
+            "bff",
+            "backend"
+          ],
+          "codeSnippet": "GET /internal/sign?tenant=..."
+        },
+        {
+          "name": "长期有效的公共上传凭证",
+          "layer": "infra",
+          "pros": [
+            "无需签发接口"
+          ],
+          "cons": [
+            "凭证泄露即全量可写",
+            "无法审计"
+          ],
+          "whenToUse": "任何生产环境都不建议",
+          "migrationCost": "低",
+          "affectedLayers": [
+            "infra"
+          ],
+          "codeSnippet": "// 固定 policy，永不过期"
+        }
+      ],
+      "comparisonConclusion": "当存在多租户且需要按租户做配额裁剪时选当前 BFF 聚合签发；若是单租户内部系统且已有统一网关鉴权，则可让后端直接签发以缩短链路；只有在无租户概念的纯静态演示站条件下，才允许前端直连 STS；任何生产环境都不得使用长期有效的公共凭证。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "凭证请求失败导致用户无法开始上传",
+          "strategy": "本地暂存已选文件，展示可重试状态，不清空用户选择",
+          "codeSnippet": "setPendingFiles(files);\nshowRetry('凭证服务暂不可用');",
+          "monitoring": "token_ui_retry_rate"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "配额服务超时",
+          "strategy": "fail-closed：拒绝签发并返回明确错误码，绝不默认放行",
+          "codeSnippet": "throw httpError(503, 'QUOTA_UNAVAILABLE');\n// 禁止 catch 后 return defaultAllow()",
+          "monitoring": "quota_timeout_total、fail_open 拦截数"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "签发服务分区不可用",
+          "strategy": "切到备用分区签发，并在 token 上标记 region 供回调对账",
+          "codeSnippet": "const signer = pickHealthySigner([primary, backup]);\nreturn signer.issue(policy);",
+          "monitoring": "signer_failover_count"
+        },
+        {
+          "layer": "data",
+          "failureMode": "dedupe 表查询超时",
+          "strategy": "跳过复用直接签发新 key，靠对象唯一索引与生命周期规则事后清理",
+          "codeSnippet": "const hit = await lookup(hash).catch(() => null);\nreturn issue({ key: hit?.key ?? newKey(hash) });",
+          "monitoring": "dedupe_lookup_timeout、孤立对象清理量"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "网关限流误伤签发接口",
+          "strategy": "为 /api/upload/token 配置独立限流桶与优先级队列",
+          "codeSnippet": "rateLimit({ path: '/api/upload/token', bucket: 'upload-token', rps: 200 });",
+          "monitoring": "token_429_rate"
+        }
+      ],
+      "pitfalls": [
+        "policy 必须绑定 key 前缀与 Content-Type，否则可越权覆盖他人对象",
+        "expireAt 要留时钟偏移余量",
+        "配额扣减与签发不是事务，需对账"
+      ],
+      "tags": [
+        "上传",
+        "鉴权",
+        "配额",
+        "预签名",
+        "BFF"
+      ],
+      "repoPath": "apps/bff/src/routes/upload-token.ts",
+      "links": {
+        "upstream": [
+          "m.fe.useUploadQueue",
+          "m.fe.uploadFile"
+        ],
+        "downstream": [
+          "m.be.generatePresignedUrl"
+        ],
+        "related": [
+          "m.data.redisDedupe"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "签发绑定租户前缀的凭证",
+          "code": "const policy = { keyPrefix: `up/${ctx.tenantId}/`, contentType, maxSize };\nreturn signer.issue(policy, { ttl: 600 });",
+          "explain": "前缀绑定让凭证即使泄露也只能写到该租户目录。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "系统是否多租户且需要按租户配额？",
+            "options": [
+              {
+                "label": "是",
+                "value": "multi",
+                "next": "END"
+              },
+              {
+                "label": "否，单租户",
+                "value": "single",
+                "next": "q2"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否已有统一网关完成鉴权？",
+            "options": [
+              {
+                "label": "是",
+                "value": "gateway",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "none",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "multi"
+            },
+            "result": "保留当前 BFF 聚合签发",
+            "reason": "租户配额与会话语义只有 BFF 同时具备。"
+          },
+          {
+            "when": {
+              "q1": "single",
+              "q2": "gateway"
+            },
+            "result": "由后端服务直接签发（跳过 BFF）",
+            "reason": "网关已承担鉴权，BFF 聚合层收益不足。"
+          },
+          {
+            "when": {
+              "q1": "single",
+              "q2": "none"
+            },
+            "result": "保留当前 BFF 聚合签发",
+            "reason": "缺少统一鉴权时，仍需 BFF 收敛会话校验。"
+          }
+        ],
+        "defaultResult": "保留当前 BFF 聚合签发",
+        "defaultReason": "默认保留鉴权收敛点。"
+      },
+      "updatedAt": "2026-08-02",
+      "repoUpdatedAt": "2026-09-11",
+      "lastCodeChangeAt": "2026-09-11"
+    },
+    {
+      "id": "m.be.generatePresignedUrl",
+      "name": "generatePresignedUrl",
+      "signature": "generatePresignedUrl(bucket: string, key: string, ttlSec: number, policy: Policy): string",
+      "layer": "backend",
+      "stack": "Java 21 + Spring Boot",
+      "module": "文件上传",
+      "summary": "用服务端密钥生成短时、绑定资源前缀与内容类型的对象存储预签名 URL。",
+      "what": {
+        "params": [
+          {
+            "name": "bucket",
+            "type": "string",
+            "desc": "目标桶"
+          },
+          {
+            "name": "ttlSec",
+            "type": "number",
+            "desc": "有效期，上限 900"
+          }
+        ],
+        "returns": "string：可直接 PUT 的预签名 URL",
+        "sideEffects": [
+          "读 KMS 密钥",
+          "写签名审计日志"
+        ],
+        "callers": [
+          "POST /api/upload/token"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "为前端直传生成临时写权限"
+        ],
+        "problemsSolved": [
+          "最小权限：只能写指定 key 前缀",
+          "时间受限：泄露窗口 ≤ 15min",
+          "密钥不出服务端"
+        ],
+        "preconditions": [
+          "KMS 可用",
+          "key 已完成租户前缀规范化",
+          "policy 不含通配符"
+        ],
+        "layerReason": "长期密钥与 KMS 只能在后端持有，签名属于信任边界内的操作。",
+        "counterExample": {
+          "title": "签发通配符 policy",
+          "desc": "凭证可写整个桶，一次泄露即全量数据可覆盖。",
+          "code": "policy.setResource('*'); // 禁止"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "STS 临时角色凭证",
+          "layer": "infra",
+          "pros": [
+            "无需自管签名",
+            "权限模型更细"
+          ],
+          "cons": [
+            "多一次 STS 调用",
+            "策略配置复杂"
+          ],
+          "whenToUse": "多服务共享对象存储且权限频繁变化",
+          "migrationCost": "中（3 人日）",
+          "affectedLayers": [
+            "backend",
+            "infra"
+          ],
+          "codeSnippet": "sts.assumeRole(policy, Duration.ofMinutes(10));"
+        },
+        {
+          "name": "服务端中转 PUT",
+          "layer": "backend",
+          "pros": [
+            "零签名逻辑"
+          ],
+          "cons": [
+            "文件流量全进后端"
+          ],
+          "whenToUse": "文件小且并发极低的内部系统",
+          "migrationCost": "低（1 人日）",
+          "affectedLayers": [
+            "backend",
+            "infra"
+          ],
+          "codeSnippet": "ossClient.putObject(bucket, key, stream);"
+        }
+      ],
+      "comparisonConclusion": "当文件由浏览器直传且需要最小权限时选当前预签名 URL；若多服务共享存储且权限策略频繁变化，则改用 STS 临时角色凭证；只有在文件小、并发极低且不介意流量进后端的条件下，才用服务端中转 PUT。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "URL 过期",
+          "strategy": "按 expireAt 提前 30s 触发续签，复用原 key",
+          "codeSnippet": "if (expireAt - Date.now() < 30_000) return refresh(key);",
+          "monitoring": "presign_refresh_total"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "签发结果被缓存复用跨租户",
+          "strategy": "缓存键必须包含 tenantId + keyPrefix，命中前二次校验",
+          "codeSnippet": "cacheKey = `${tenantId}:${keyPrefix}:${policyHash}`;",
+          "monitoring": "presign_cache_cross_tenant_block"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "KMS 不可用",
+          "strategy": "切换备用密钥版本并降级为只读签发，同时告警，不返回无签名 URL",
+          "codeSnippet": "key = kms.activeVersion() ?? kms.backupVersion();\nif (!key) throw new SigningUnavailable();",
+          "monitoring": "kms_error_rate、signing_degraded"
+        },
+        {
+          "layer": "data",
+          "failureMode": "审计日志写入失败",
+          "strategy": "先本地落盘再异步补写，禁止因日志失败阻塞签发",
+          "codeSnippet": "auditBuffer.append(event); // async flush",
+          "monitoring": "audit_buffer_depth"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "时钟漂移导致签名提前失效",
+          "strategy": "所有签发节点强制 NTP 对齐，签发时留 60s 偏移余量",
+          "codeSnippet": "ttl = min(ttlSec, 900); skewAllowance = 60;",
+          "monitoring": "node_clock_drift_ms"
+        }
+      ],
+      "pitfalls": [
+        "ttlSec 必须设上限，否则长期凭证等价泄露",
+        "policy 里的 keyPrefix 需做路径穿越校验",
+        "签名审计日志不能记录完整 URL（含签名）"
+      ],
+      "tags": [
+        "上传",
+        "预签名",
+        "KMS",
+        "最小权限"
+      ],
+      "repoPath": "services/file/src/main/java/.../PresignService.java",
+      "links": {
+        "upstream": [
+          "m.bff.createUploadToken"
+        ],
+        "downstream": [
+          "m.fe.uploadFile",
+          "m.infra.ossLifecycle"
+        ],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "生成 10 分钟有效的 PUT 签名",
+          "code": "String url = oss.generatePresignedUrl(bucket, key, 600, HttpMethod.PUT, policy);",
+          "explain": "有效期与资源前缀同时绑定，构成最小写权限。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "是否由浏览器直传对象存储？",
+            "options": [
+              {
+                "label": "是",
+                "value": "direct",
+                "next": "q2"
+              },
+              {
+                "label": "否",
+                "value": "proxy",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否存在多服务共享存储且权限频繁变化？",
+            "options": [
+              {
+                "label": "是",
+                "value": "shared",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "single",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "proxy"
+            },
+            "result": "服务端中转 PUT",
+            "reason": "流量本就进后端，签名层没有收益。"
+          },
+          {
+            "when": {
+              "q2": "shared"
+            },
+            "result": "STS 临时角色凭证",
+            "reason": "集中式角色策略更适合多服务频繁变更的权限。"
+          },
+          {
+            "when": {
+              "q1": "direct",
+              "q2": "single"
+            },
+            "result": "保留当前预签名 URL",
+            "reason": "单服务直传场景，预签名是复杂度最低的最小权限方案。"
+          }
+        ],
+        "defaultResult": "保留当前预签名 URL",
+        "defaultReason": "默认落在单服务直传场景。"
+      },
+      "updatedAt": "2026-07-15",
+      "repoUpdatedAt": "2026-07-15",
+      "lastCodeChangeAt": "2026-06-20"
+    },
+    {
+      "id": "m.be.verifyUploadCallback",
+      "name": "verifyUploadCallback",
+      "signature": "verifyUploadCallback(sign: string, body: UploadCallback): Promise<CallbackResult>",
+      "layer": "backend",
+      "stack": "Java 21 + Spring Boot",
+      "module": "文件上传",
+      "summary": "校验对象存储上传回调签名，幂等地把「对象已落盘」写入业务库。",
+      "what": {
+        "params": [
+          {
+            "name": "sign",
+            "type": "string",
+            "desc": "OSS 回调头中的签名"
+          },
+          {
+            "name": "body",
+            "type": "UploadCallback",
+            "desc": "objectKey / etag / size"
+          }
+        ],
+        "returns": "CallbackResult：{ accepted, duplicate, orderId? }",
+        "sideEffects": [
+          "幂等写 upload_record",
+          "发布 UploadCompleted 事件"
+        ],
+        "callers": [
+          "OSS 回调 HTTP 入口"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "对象存储通知文件已完成上传",
+          "订单附件状态需要落库"
+        ],
+        "problemsSolved": [
+          "防止伪造回调把不存在的对象标记为已完成",
+          "回调重投不产生重复记录",
+          "把对象状态转成业务事件"
+        ],
+        "preconditions": [
+          "回调公钥已轮换同步",
+          "upload_record 有唯一索引",
+          "MQ 生产者可用"
+        ],
+        "layerReason": "验签需要长期密钥与业务库事务，只能在后端完成。",
+        "counterExample": {
+          "title": "信任回调不做验签",
+          "desc": "任何人构造 POST 即可把订单标记为已上传，且对象并不存在。",
+          "code": "@PostMapping('/callback')\npublic void cb(@RequestBody Callback c) { markDone(c.getKey()); }"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "前端上传成功后主动上报",
+          "layer": "frontend",
+          "pros": [
+            "无需配置回调"
+          ],
+          "cons": [
+            "用户关页即丢失",
+            "不可信来源"
+          ],
+          "whenToUse": "仅作辅助确认，不能作为唯一事实源",
+          "migrationCost": "低",
+          "affectedLayers": [
+            "frontend",
+            "backend"
+          ],
+          "codeSnippet": "await api.post('/upload/confirm', { key, etag });"
+        },
+        {
+          "name": "定时轮询对象存储清单",
+          "layer": "backend",
+          "pros": [
+            "不依赖回调可用性",
+            "可天然对账"
+          ],
+          "cons": [
+            "状态延迟分钟级",
+            "清单接口有频率限制"
+          ],
+          "whenToUse": "回调长期不稳定的兜底手段",
+          "migrationCost": "中（2 人日）",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "scheduler.fixedRate(60_000, () -> reconcileListing());"
+        },
+        {
+          "name": "CDC 订阅对象元数据表",
+          "layer": "data",
+          "pros": [
+            "实时且可重放"
+          ],
+          "cons": [
+            "引入流处理依赖"
+          ],
+          "whenToUse": "已有 Flink/Debezium 基础设施的团队",
+          "migrationCost": "高（5 人日）",
+          "affectedLayers": [
+            "backend",
+            "data",
+            "infra"
+          ],
+          "codeSnippet": "debezium.source('oss_meta').sink(uploadRecord);"
+        }
+      ],
+      "comparisonConclusion": "当回调可用且要求秒级状态收敛时选当前验签 + 幂等落库方案；若回调长期不稳定或需要独立对账，则增加定时轮询清单作为兜底；只有在团队已有 Flink/Debezium 基础设施的条件下，才考虑 CDC 订阅；前端主动上报任何条件下都只能作辅助确认，不得作为唯一事实源。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "回调丢失导致页面一直转圈",
+          "strategy": "90s 后主动查询状态接口，展示「确认中」而非无限等待",
+          "codeSnippet": "setTimeout(() => pollStatus(key), 90_000);",
+          "monitoring": "ui_upload_pending_over_90s"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "状态查询打到旧缓存",
+          "strategy": "状态接口对 pending 记录强制读主库，禁用缓存",
+          "codeSnippet": "@CacheEvict(key = '#key')\nStatus status = masterRepo.findByKey(key);",
+          "monitoring": "status_stale_read_count"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "验签公钥轮换期间签名全部失败",
+          "strategy": "同时接受新旧两把公钥，验签失败进入重试队列而非直接丢弃",
+          "codeSnippet": "if (!verify(newKey) && !verify(oldKey)) dlq.push(body);",
+          "monitoring": "callback_sign_fail_rate、dlq_depth"
+        },
+        {
+          "layer": "data",
+          "failureMode": "回调重投造成重复记录",
+          "strategy": "objectKey 唯一索引 + INSERT IGNORE，返回 duplicate=true",
+          "codeSnippet": "INSERT IGNORE INTO upload_record(object_key, etag) VALUES(?, ?);",
+          "monitoring": "callback_duplicate_ratio"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "OSS 回调地址不可达",
+          "strategy": "配置主备回调地址，未投递事件由清单对账任务补齐",
+          "codeSnippet": "callbackUrls: [primary, backup]\n// reconcile job 每小时补一次",
+          "monitoring": "callback_delivery_fail_total、对账补齐数"
+        }
+      ],
+      "pitfalls": [
+        "验签必须用原始 body 字节，不能先反序列化再拼串",
+        "回调超时时间要小于 OSS 重投间隔，否则必然重复",
+        "公钥轮换必须双写窗口，事故 i.upload.callback 就是少了这一步"
+      ],
+      "tags": [
+        "上传",
+        "回调",
+        "验签",
+        "幂等",
+        "事故关联"
+      ],
+      "repoPath": "services/file/src/main/java/.../CallbackVerifier.java",
+      "links": {
+        "upstream": [
+          "m.infra.ossLifecycle",
+          "m.fe.uploadFile"
+        ],
+        "downstream": [
+          "m.be.publishOrderEvent"
+        ],
+        "related": [
+          "m.fe.useUploadQueue"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "双公钥窗口期验签",
+          "code": "boolean ok = verifier.verify(raw, sign, activeKey)\n        || verifier.verify(raw, sign, previousKey);\nif (!ok) deadLetter.push(raw);",
+          "explain": "轮换期间不丢事件，也不放宽验签。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "回调链路是否稳定可用？",
+            "options": [
+              {
+                "label": "稳定",
+                "value": "stable",
+                "next": "q2"
+              },
+              {
+                "label": "经常丢",
+                "value": "flaky",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "团队是否已有 Flink/Debezium 流处理设施？",
+            "options": [
+              {
+                "label": "有",
+                "value": "yes",
+                "next": "END"
+              },
+              {
+                "label": "没有",
+                "value": "no",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "flaky"
+            },
+            "result": "定时轮询对象存储清单",
+            "reason": "回调不可靠时，清单是唯一完整的事实源。"
+          },
+          {
+            "when": {
+              "q1": "stable",
+              "q2": "yes"
+            },
+            "result": "CDC 订阅对象元数据表",
+            "reason": "已有流处理设施时 CDC 可重放且实时。"
+          },
+          {
+            "when": {
+              "q1": "stable",
+              "q2": "no"
+            },
+            "result": "保留当前验签 + 幂等落库",
+            "reason": "回调稳定且无流处理设施，当前方案成本最低。"
+          }
+        ],
+        "defaultResult": "保留当前验签 + 幂等落库",
+        "defaultReason": "默认采用回调直写并把清单对账作为兜底。"
+      },
+      "updatedAt": "2026-08-20",
+      "repoUpdatedAt": "2026-08-20",
+      "lastCodeChangeAt": "2026-08-14"
+    },
+    {
+      "id": "m.infra.ossLifecycle",
+      "name": "putObjectLifecycleRule",
+      "signature": "putObjectLifecycleRule(bucket: string, rule: { prefix: string; days: number; action: 'delete' | 'archive' }): void",
+      "layer": "infra",
+      "stack": "Terraform + OSS",
+      "module": "文件上传",
+      "summary": "给临时上传前缀设置自动过期规则，清理回调丢失或上传中断产生的孤立对象。",
+      "what": {
+        "params": [
+          {
+            "name": "rule.prefix",
+            "type": "string",
+            "desc": "只作用于临时上传目录"
+          },
+          {
+            "name": "rule.days",
+            "type": "number",
+            "desc": "过期天数，默认 7"
+          }
+        ],
+        "returns": "void（声明式配置）",
+        "sideEffects": [
+          "修改桶生命周期配置",
+          "异步删除到期对象"
+        ],
+        "callers": [
+          "Terraform 流水线"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "上传中断产生无主对象",
+          "回调丢失但对象已落盘"
+        ],
+        "problemsSolved": [
+          "存储成本可回收",
+          "不需要业务侧写清理任务",
+          "与业务解耦的最后一道防线"
+        ],
+        "preconditions": [
+          "临时前缀与正式对象前缀严格分离",
+          "已完成对象会被业务侧转存或打标"
+        ],
+        "layerReason": "对象生命周期是存储设施自身能力，放在应用层会引入定时任务与状态一致性问题。",
+        "counterExample": {
+          "title": "不设生命周期，靠人工清理",
+          "desc": "半年后临时目录堆积数十 TB，且无法区分哪些对象仍被待确认订单引用。",
+          "code": "// 无规则，临时对象永久保留"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "业务侧定时清理任务",
+          "layer": "backend",
+          "pros": [
+            "可按业务状态判断"
+          ],
+          "cons": [
+            "需要扫描与分布式锁",
+            "任务挂了就堆积"
+          ],
+          "whenToUse": "清理必须依赖业务状态时",
+          "migrationCost": "中（2 人日）",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "@Scheduled('0 3 * * *') void sweepOrphans() { ... }"
+        },
+        {
+          "name": "上传前预写占位记录 + TTL 索引",
+          "layer": "data",
+          "pros": [
+            "可精确追踪"
+          ],
+          "cons": [
+            "写放大",
+            "库表膨胀"
+          ],
+          "whenToUse": "需要审计每个临时对象归属时",
+          "migrationCost": "中（3 人日）",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "db.uploadIntent.insert({ key, expireAt }); // TTL index"
+        }
+      ],
+      "comparisonConclusion": "当临时上传前缀与正式对象前缀可严格分离时选当前生命周期规则；若清理判定必须依赖业务订单状态，则增加业务侧定时清理任务；只有在需要审计每个临时对象归属的条件下，才引入预写占位记录与 TTL 索引；任何条件下都不得让临时对象无回收路径。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "用户中断上传留下未完成对象",
+          "strategy": "取消时调用 abort 接口打中断标记，便于生命周期规则提前识别",
+          "codeSnippet": "await api.post('/upload/abort', { key });",
+          "monitoring": "upload_abort_total"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "转存接口失败导致正式对象仍在临时前缀",
+          "strategy": "转存失败时回滚业务状态，禁止把临时 key 写进正式记录",
+          "codeSnippet": "if (!promote(key)) throw new PromoteFailed(key);",
+          "monitoring": "promote_fail_total"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "生命周期规则被误改为覆盖全桶",
+          "strategy": "Terraform plan 加前缀白名单校验，CI 拦截宽泛 prefix",
+          "codeSnippet": "assert(rule.prefix.startsWith('up/tmp/'), 'prefix too broad');",
+          "monitoring": "lifecycle_rule_diff_alerts"
+        },
+        {
+          "layer": "data",
+          "failureMode": "到期对象仍被待确认订单引用",
+          "strategy": "删除前查业务引用，命中则打标延期 7 天并告警",
+          "codeSnippet": "if (referenced(key)) { tag(key, 'keep', 7); alert(); }",
+          "monitoring": "lifecycle_delete_skipped"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "生命周期任务延迟或未执行",
+          "strategy": "监控临时前缀对象总量与最老对象年龄，超阈值触发人工对账",
+          "codeSnippet": "alert when oldest_object_age_days > 10",
+          "monitoring": "tmp_object_count、oldest_object_age_days"
+        }
+      ],
+      "pitfalls": [
+        "prefix 千万别配成空串，曾误删整个桶的测试对象",
+        "低频访问存储有最小存储时长，转 archive 未必省钱",
+        "规则变更需要 review，属于基础设施高危操作"
+      ],
+      "tags": [
+        "上传",
+        "OSS",
+        "生命周期",
+        "成本",
+        "Terraform"
+      ],
+      "repoPath": "infra/terraform/oss_lifecycle.tf",
+      "links": {
+        "upstream": [
+          "m.be.generatePresignedUrl",
+          "m.fe.uploadFile"
+        ],
+        "downstream": [
+          "m.be.verifyUploadCallback"
+        ],
+        "related": []
+      },
+      "examples": [
+        {
+          "scene": "只对临时前缀设置 7 天过期",
+          "code": "resource \"oss_bucket_lifecycle\" \"tmp\" {\n  prefix = \"up/tmp/\"\n  days   = 7\n  action = \"delete\"\n}",
+          "explain": "前缀隔离是这条规则安全的前提。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "临时前缀与正式对象前缀能否严格分离？",
+            "options": [
+              {
+                "label": "能",
+                "value": "separable",
+                "next": "q2"
+              },
+              {
+                "label": "不能",
+                "value": "mixed",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否需要审计每个临时对象的归属？",
+            "options": [
+              {
+                "label": "需要",
+                "value": "audit",
+                "next": "END"
+              },
+              {
+                "label": "不需要",
+                "value": "no",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "mixed"
+            },
+            "result": "业务侧定时清理任务",
+            "reason": "前缀混用无法用设施规则安全删除，只能按业务状态判断。"
+          },
+          {
+            "when": {
+              "q2": "audit"
+            },
+            "result": "预写占位记录 + TTL 索引",
+            "reason": "需要可追溯归属时，业务表记录是必要成本。"
+          },
+          {
+            "when": {
+              "q1": "separable",
+              "q2": "no"
+            },
+            "result": "保留当前生命周期规则",
+            "reason": "前缀可隔离且无需审计，设施侧规则最省维护。"
+          }
+        ],
+        "defaultResult": "保留当前生命周期规则",
+        "defaultReason": "默认以前缀隔离 + 设施规则作为最后一道防线。"
+      },
+      "updatedAt": "2026-05-12",
+      "repoUpdatedAt": "2026-05-12",
+      "lastCodeChangeAt": "2026-05-12"
+    },
+    {
+      "id": "m.fe.submitOrder",
+      "name": "submitOrder",
+      "signature": "submitOrder(draft: OrderDraft, opts: { idempotencyKey: string }): Promise<OrderView>",
+      "layer": "frontend",
+      "stack": "React 18 + TypeScript",
+      "module": "下单",
+      "summary": "提交订单时携带客户端生成的幂等键，并对按钮做在途锁定。",
+      "what": {
+        "params": [
+          {
+            "name": "draft",
+            "type": "OrderDraft",
+            "desc": "购物车快照与收货信息"
+          },
+          {
+            "name": "opts.idempotencyKey",
+            "type": "string",
+            "desc": "由购物车版本号 + 会话生成的 UUID"
+          }
+        ],
+        "returns": "Promise<OrderView>",
+        "sideEffects": [
+          "按钮置 loading",
+          "写 sessionStorage 幂等键",
+          "提交成功清空购物车"
+        ],
+        "callers": [
+          "CheckoutPage"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "用户连点提交按钮",
+          "弱网下请求超时后用户手动刷新重试"
+        ],
+        "problemsSolved": [
+          "前端先挡住最常见的重复触发",
+          "重试沿用同一幂等键，后端可去重",
+          "成功后才清购物车，避免丢单"
+        ],
+        "preconditions": [
+          "幂等键在购物车内容不变时保持稳定",
+          "购物车变更必须重新生成键"
+        ],
+        "layerReason": "连点与在途状态只存在于浏览器交互层，前端必须先行拦截，后端去重是第二道。",
+        "counterExample": {
+          "title": "只靠按钮 disable，不给幂等键",
+          "desc": "用户刷新页面后 disable 失效，重试生成新请求，后端无去重依据，产生双份订单。",
+          "code": "onClick={() => { setDisabled(true); api.post('/orders', draft); }}"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "仅后端去重，前端不锁按钮",
+          "layer": "frontend",
+          "pros": [
+            "前端最简单"
+          ],
+          "cons": [
+            "无谓请求打满网关",
+            "用户看到多次 loading 闪烁"
+          ],
+          "whenToUse": "内部低并发工具",
+          "migrationCost": "低",
+          "affectedLayers": [
+            "frontend"
+          ],
+          "codeSnippet": "api.post('/orders', draft); // 无锁"
+        },
+        {
+          "name": "服务端生成一次性提交令牌",
+          "layer": "bff",
+          "pros": [
+            "键不可被客户端伪造",
+            "可绑定购物车快照"
+          ],
+          "cons": [
+            "多一次往返",
+            "令牌服务成为关键路径"
+          ],
+          "whenToUse": "涉及资金且需要强防重放",
+          "migrationCost": "中（3 人日）",
+          "affectedLayers": [
+            "frontend",
+            "bff",
+            "backend"
+          ],
+          "codeSnippet": "const t = await api.get('/orders/submit-token');\napi.post('/orders', { ...draft, token: t });"
+        },
+        {
+          "name": "前端队列 + 离线提交",
+          "layer": "frontend",
+          "pros": [
+            "断网也能恢复"
+          ],
+          "cons": [
+            "状态机复杂",
+            "离线期间价格可能变化"
+          ],
+          "whenToUse": "移动端弱网占比极高的场景",
+          "migrationCost": "高（5 人日）",
+          "affectedLayers": [
+            "frontend",
+            "bff"
+          ],
+          "codeSnippet": "outbox.push(draft); // Service Worker 后台重放"
+        }
+      ],
+      "comparisonConclusion": "当存在常规连点与弱网重试时选当前「在途锁 + 客户端幂等键」；若涉及资金且要求不可伪造的防重放，则改用服务端一次性提交令牌；只有在内部低并发工具场景下，才可仅靠后端去重；若移动端弱网占比极高且能接受价格复核，才考虑离线提交队列。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "请求超时，用户不确定是否下单成功",
+          "strategy": "沿用同一幂等键重试，并展示「查询订单结果」而不是「重新提交」",
+          "codeSnippet": "await api.post('/orders', draft, { key }); // key 不变\n// 超时改为 GET /orders?key=",
+          "monitoring": "submit_timeout_retry_total、重复率"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "提交请求被网关重放",
+          "strategy": "BFF 透传 Idempotency-Key 且不改写，网关配置重放窗口内去重",
+          "codeSnippet": "headers['Idempotency-Key'] = req.header('Idempotency-Key');",
+          "monitoring": "gateway_replay_blocked"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "幂等键冲突但返回体不一致",
+          "strategy": "命中幂等记录时返回首次结果原样，禁止重新计算价格",
+          "codeSnippet": "if (hit) return hit.responseSnapshot;",
+          "monitoring": "idempotent_hit_ratio、响应不一致数"
+        },
+        {
+          "layer": "data",
+          "failureMode": "购物车快照与订单不一致",
+          "strategy": "订单表存 cartVersion，校验不通过直接拒绝并提示刷新",
+          "codeSnippet": "if (order.cartVersion != cart.version) throw Conflict();",
+          "monitoring": "cart_version_conflict_total"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "提交高峰网关限流",
+          "strategy": "按用户维度令牌桶 + 排队提示，避免 429 触发用户反复点击",
+          "codeSnippet": "rateLimit({ key: userId, rps: 2, burst: 3 });",
+          "monitoring": "submit_429_rate"
+        }
+      ],
+      "pitfalls": [
+        "购物车内容变化后必须换幂等键，否则会复用旧订单结果",
+        "成功后清购物车要放在结果确认之后",
+        "在途锁不能只靠 CSS pointer-events，键盘 Enter 仍可触发"
+      ],
+      "tags": [
+        "下单",
+        "幂等",
+        "连点",
+        "前端"
+      ],
+      "repoPath": "apps/web/src/order/submitOrder.ts",
+      "links": {
+        "upstream": [],
+        "downstream": [
+          "m.bff.createOrder"
+        ],
+        "related": [
+          "m.be.idempotentGuard"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "用购物车版本号生成稳定幂等键",
+          "code": "const key = `${cart.id}:${cart.version}`;\nawait submitOrder(draft, { idempotencyKey: key });",
+          "explain": "内容不变键不变，内容变化键随之变化。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "是否涉及资金且需要强防重放？",
+            "options": [
+              {
+                "label": "是",
+                "value": "money",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "normal",
+                "next": "q2"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否是内部低并发工具？",
+            "options": [
+              {
+                "label": "是",
+                "value": "internal",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "prod",
+                "next": "q3"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "question": "移动端弱网占比是否极高？",
+            "options": [
+              {
+                "label": "是",
+                "value": "weak",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "ok",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "money"
+            },
+            "result": "服务端生成一次性提交令牌",
+            "reason": "客户端生成的键可被伪造，资金场景需要服务端令牌。"
+          },
+          {
+            "when": {
+              "q2": "internal"
+            },
+            "result": "仅后端去重，前端不锁按钮",
+            "reason": "低并发内部工具，交互复杂度收益不足。"
+          },
+          {
+            "when": {
+              "q3": "weak"
+            },
+            "result": "前端队列 + 离线提交",
+            "reason": "弱网下需要可恢复的本地 outbox，但必须做价格复核。"
+          },
+          {
+            "when": {
+              "q1": "normal",
+              "q2": "prod",
+              "q3": "ok"
+            },
+            "result": "保留当前在途锁 + 客户端幂等键",
+            "reason": "常规电商并发与弱网水平，双层防重最划算。"
+          }
+        ],
+        "defaultResult": "保留当前在途锁 + 客户端幂等键",
+        "defaultReason": "默认采用前端拦截 + 后端去重的双层方案。"
+      },
+      "updatedAt": "2026-06-10",
+      "repoUpdatedAt": "2026-06-10",
+      "lastCodeChangeAt": "2026-06-02"
+    },
+    {
+      "id": "m.bff.createOrder",
+      "name": "POST /api/orders",
+      "signature": "createOrder(req: CreateOrderReq, ctx: UserCtx): Promise<OrderView>",
+      "layer": "bff",
+      "stack": "Node.js + Fastify",
+      "module": "下单",
+      "summary": "聚合用户态、价格复核与幂等键透传，把下单请求收敛到后端领域服务。",
+      "what": {
+        "params": [
+          {
+            "name": "Idempotency-Key",
+            "type": "header",
+            "desc": "必需；缺失直接 400"
+          },
+          {
+            "name": "req.cartVersion",
+            "type": "number",
+            "desc": "用于价格复核"
+          }
+        ],
+        "returns": "OrderView：聚合订单主档、支付单、附件状态",
+        "sideEffects": [
+          "调用价格服务复核",
+          "透传幂等键到后端",
+          "写下单项埋点"
+        ],
+        "callers": [
+          "submitOrder"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "多端下单入口需要一致的聚合视图",
+          "价格在下单瞬间可能变化"
+        ],
+        "problemsSolved": [
+          "前端不必分别调 3 个服务",
+          "在 BFF 完成价格复核，避免后端拿到过期价格",
+          "幂等键统一校验入口"
+        ],
+        "preconditions": [
+          "网关已注入 UserCtx",
+          "价格服务可用或可 fail-closed",
+          "幂等键格式符合 UUID/自定义规范"
+        ],
+        "layerReason": "聚合与用户态裁剪是 BFF 的职责；后端领域服务不应理解多端视图差异。",
+        "counterExample": {
+          "title": "前端直接调用后端领域服务",
+          "desc": "每个端各自实现聚合与价格复核，出现三个版本的不一致逻辑。",
+          "code": "Promise.all([orderSvc.create(), priceSvc.get(), paySvc.init()]);"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "GraphQL 聚合网关",
+          "layer": "bff",
+          "pros": [
+            "端上按需取字段"
+          ],
+          "cons": [
+            "引入 schema 治理成本"
+          ],
+          "whenToUse": "端数量 ≥ 4 且字段差异大",
+          "migrationCost": "高（5 人日）",
+          "affectedLayers": [
+            "frontend",
+            "bff"
+          ],
+          "codeSnippet": "mutation { createOrder(input: $in) { id payUrl } }"
+        },
+        {
+          "name": "后端直接返回聚合视图",
+          "layer": "backend",
+          "pros": [
+            "链路最短"
+          ],
+          "cons": [
+            "领域服务被端侧视图污染"
+          ],
+          "whenToUse": "仅单端系统",
+          "migrationCost": "中（2 人日）",
+          "affectedLayers": [
+            "bff",
+            "backend"
+          ],
+          "codeSnippet": "return OrderAssembler.toView(order); // 在后端组装"
+        }
+      ],
+      "comparisonConclusion": "当存在多端入口且各端视图不同时选当前 BFF 聚合并做价格复核；若端数量达到 4 个以上且字段差异很大，则可升级为 GraphQL 聚合网关；只有在仅单端系统的条件下，才允许后端直接返回聚合视图；任何条件下都不得让前端自行并行调用多个领域服务。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "聚合响应超时",
+          "strategy": "改用订单查询接口按幂等键轮询，不再发起新的创建请求",
+          "codeSnippet": "await poll(`/api/orders?key=${key}`);",
+          "monitoring": "create_timeout_poll_total"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "价格服务超时",
+          "strategy": "fail-closed 返回 503「请重试」，绝不按前端传来的价格下单",
+          "codeSnippet": "const p = await priceSvc.quote(cartVersion); // 超时即抛\nif (!p.ok) throw httpError(503, 'PRICE_UNAVAILABLE');",
+          "monitoring": "price_timeout_total、fail_open_blocked"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "领域服务返回 5xx",
+          "strategy": "带同一幂等键有限重试 1 次，仍失败则返回可查询状态",
+          "codeSnippet": "return retry(() => orderSvc.create({ key }), { times: 1 });",
+          "monitoring": "order_svc_5xx、重试成功率"
+        },
+        {
+          "layer": "data",
+          "failureMode": "聚合查询读到从库延迟",
+          "strategy": "创建后 3s 内的查询强制走主库",
+          "codeSnippet": "if (Date.now() - createdAt < 3000) useMaster();",
+          "monitoring": "replica_lag_ms、read_your_write_miss"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "大促流量冲垮 BFF",
+          "strategy": "按用户维度限流 + 下单接口独立线程池隔离",
+          "codeSnippet": "bulkhead('order-create', { concurrency: 200 });",
+          "monitoring": "bff_threadpool_saturation"
+        }
+      ],
+      "pitfalls": [
+        "幂等键缺失必须 400，不能自动生成，否则防重失效",
+        "价格复核结果要写进请求上下文，别让后端二次查",
+        "聚合超时重试必须沿用原键"
+      ],
+      "tags": [
+        "下单",
+        "BFF",
+        "聚合",
+        "价格复核",
+        "幂等"
+      ],
+      "repoPath": "apps/bff/src/routes/orders.ts",
+      "links": {
+        "upstream": [
+          "m.fe.submitOrder"
+        ],
+        "downstream": [
+          "m.be.idempotentGuard",
+          "m.be.createOrder"
+        ],
+        "related": [
+          "m.data.insertOrderTx"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "强制校验幂等键",
+          "code": "const key = req.headers['idempotency-key'];\nif (!key) return reply.code(400).send({ code: 'KEY_REQUIRED' });",
+          "explain": "把防重前置到入口，避免后端承担无效流量。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "端数量是否 ≥ 4 且字段差异很大？",
+            "options": [
+              {
+                "label": "是",
+                "value": "many",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "few",
+                "next": "q2"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否仅单端系统？",
+            "options": [
+              {
+                "label": "是",
+                "value": "single",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "multi",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "many"
+            },
+            "result": "GraphQL 聚合网关",
+            "reason": "多端字段差异大，按需取字段能显著降低聚合维护成本。"
+          },
+          {
+            "when": {
+              "q2": "single"
+            },
+            "result": "后端直接返回聚合视图",
+            "reason": "单端系统没有视图裁剪需求，BFF 聚合层可省。"
+          },
+          {
+            "when": {
+              "q1": "few",
+              "q2": "multi"
+            },
+            "result": "保留当前 BFF 聚合",
+            "reason": "多端但规模不大，REST 聚合最简单可控。"
+          }
+        ],
+        "defaultResult": "保留当前 BFF 聚合",
+        "defaultReason": "默认保持 BFF 作为唯一聚合点。"
+      },
+      "updatedAt": "2026-09-05",
+      "repoUpdatedAt": "2026-10-02",
+      "lastCodeChangeAt": "2026-10-02"
+    },
+    {
+      "id": "m.be.idempotentGuard",
+      "name": "withIdempotency",
+      "signature": "withIdempotency<T>(key: string, ttlSec: number, fn: () => Promise<T>): Promise<IdemResult<T>>",
+      "layer": "backend",
+      "stack": "Java 21 + Spring Boot",
+      "module": "下单",
+      "summary": "以幂等键包裹领域操作，用「执行中 / 已完成」两态防止并发重复提交。",
+      "what": {
+        "params": [
+          {
+            "name": "key",
+            "type": "string",
+            "desc": "全局幂等键"
+          },
+          {
+            "name": "ttlSec",
+            "type": "number",
+            "desc": "记录保留时长，默认 86400"
+          }
+        ],
+        "returns": "IdemResult<T>：{ value, replayed, state }",
+        "sideEffects": [
+          "Redis SETNX 占位",
+          "写幂等结果快照",
+          "记录冲突日志"
+        ],
+        "callers": [
+          "POST /api/orders",
+          "createOrder"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "同一请求并发到达多实例",
+          "上游超时重投"
+        ],
+        "problemsSolved": [
+          "并发下只有一个执行体真正运行",
+          "重放返回首次结果原样",
+          "与业务事务同生命周期，避免幽灵记录"
+        ],
+        "preconditions": [
+          "Redis 可用且 SETNX 原子",
+          "结果快照可序列化",
+          "业务方法自身不产生额外副作用"
+        ],
+        "layerReason": "幂等是领域操作的约束，必须在后端事务边界内实现；前端与 BFF 都只能减少触发，无法保证。",
+        "counterExample": {
+          "title": "先查再写（check-then-act）",
+          "desc": "两个并发请求同时查到「不存在」，双双插入订单。",
+          "code": "if (!repo.exists(key)) repo.insert(order); // 非原子"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "数据库唯一索引兜底",
+          "layer": "data",
+          "pros": [
+            "最强最终防线",
+            "不依赖 Redis"
+          ],
+          "cons": [
+            "只能报错，无法返回首次结果"
+          ],
+          "whenToUse": "作为必配的第二道防线，不能单独使用",
+          "migrationCost": "低",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "UNIQUE INDEX uk_idem_key (idempotency_key);"
+        },
+        {
+          "name": "分布式锁 + 业务查重",
+          "layer": "backend",
+          "pros": [
+            "可复用现有锁组件"
+          ],
+          "cons": [
+            "锁过期时间难定",
+            "仍需查重逻辑"
+          ],
+          "whenToUse": "已有统一锁服务且无法引入结果快照时",
+          "migrationCost": "中（2 人日）",
+          "affectedLayers": [
+            "backend"
+          ],
+          "codeSnippet": "tryLock('idem:' + key, 30, () -> doBiz());"
+        },
+        {
+          "name": "MQ 串行化同一键",
+          "layer": "infra",
+          "pros": [
+            "天然有序"
+          ],
+          "cons": [
+            "延迟上升",
+            "引入异步一致性"
+          ],
+          "whenToUse": "可接受秒级延迟的异步下单",
+          "migrationCost": "高（5 人日）",
+          "affectedLayers": [
+            "backend",
+            "infra"
+          ],
+          "codeSnippet": "mq.send('order.create', msg, { partitionKey: key });"
+        }
+      ],
+      "comparisonConclusion": "当要求同步返回首次结果且存在多实例并发时选当前 SETNX 两态幂等；若仅需要最终防重而可接受报错，则数据库唯一索引即可，但必须与当前方案叠加而非替换；只有在已有统一锁服务且无法保存结果快照的条件下，才用分布式锁 + 业务查重；若业务可接受秒级异步延迟，才考虑 MQ 按键串行化。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "上游重放时前端拿到 409",
+          "strategy": "约定 409 携带首次订单号，前端转为查询而非报错",
+          "codeSnippet": "if (e.status === 409) return queryByKey(key);",
+          "monitoring": "idem_409_converted"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "幂等键被改写导致去重失效",
+          "strategy": "BFF 记录原始键与透传键，不一致直接告警",
+          "codeSnippet": "audit.assert(rawKey === forwardedKey);",
+          "monitoring": "idem_key_mismatch_alerts"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "执行体崩溃，占位永不过期",
+          "strategy": "占位带 TTL，并由对账任务把超时 PROCESSING 重置或标记失败",
+          "codeSnippet": "SET idem:key state=PROCESSING EX 120 NX\n// reconcile: timeout > 120s → FAILED",
+          "monitoring": "idem_stuck_processing、对账重置数"
+        },
+        {
+          "layer": "data",
+          "failureMode": "Redis 不可用导致幂等整体失效",
+          "strategy": "降级为数据库唯一索引拦截，返回 409 并关闭非关键下单入口",
+          "codeSnippet": "catch (RedisUnavailable e) {\n  return db.insertWithUniqueKey(key, order); // 命中则 409\n}",
+          "monitoring": "redis_down_degrade_total"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "Redis 主从切换丢占位",
+          "strategy": "关键键开启 AOF 每秒刷盘，并在切换后跑一次对账",
+          "codeSnippet": "appendfsync everysec\n// post-failover reconcile",
+          "monitoring": "redis_failover_count、idem_record_loss"
+        }
+      ],
+      "pitfalls": [
+        "占位 TTL 必须大于业务最大执行时间，否则并发窗口重新打开",
+        "结果快照要在事务提交后再写，否则可能返回一个回滚了的订单",
+        "事故 i.order.duplicate 的根因是只做了先查再写"
+      ],
+      "tags": [
+        "下单",
+        "幂等",
+        "SETNX",
+        "并发",
+        "事故关联"
+      ],
+      "repoPath": "services/order/src/main/java/.../IdempotencyGuard.java",
+      "links": {
+        "upstream": [
+          "m.bff.createOrder"
+        ],
+        "downstream": [
+          "m.data.redisDedupe",
+          "m.be.createOrder"
+        ],
+        "related": [
+          "m.fe.submitOrder"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "原子占位 + 结果快照",
+          "code": "boolean won = redis.setnx('idem:' + key, 'PROCESSING', 120);\nif (!won) return replayOrWait(key);\nT v = fn(); redis.set('idem:' + key, snapshot(v));",
+          "explain": "SETNX 保证只有一个执行体，快照保证重放结果一致。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "是否需要同步返回首次执行的结果？",
+            "options": [
+              {
+                "label": "是",
+                "value": "sync",
+                "next": "q2"
+              },
+              {
+                "label": "否，报错即可",
+                "value": "error",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "业务能否接受秒级异步延迟？",
+            "options": [
+              {
+                "label": "能",
+                "value": "async",
+                "next": "END"
+              },
+              {
+                "label": "不能",
+                "value": "realtime",
+                "next": "q3"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "question": "是否已有统一锁服务且无法保存结果快照？",
+            "options": [
+              {
+                "label": "是",
+                "value": "lock",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "snapshot",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "error"
+            },
+            "result": "数据库唯一索引兜底",
+            "reason": "只需最终防重时唯一索引最可靠，但仍建议与 SETNX 叠加。"
+          },
+          {
+            "when": {
+              "q2": "async"
+            },
+            "result": "MQ 串行化同一键",
+            "reason": "可接受异步时，按键分区天然去重且削峰。"
+          },
+          {
+            "when": {
+              "q3": "lock"
+            },
+            "result": "分布式锁 + 业务查重",
+            "reason": "无法保存快照时只能靠锁 + 查重近似实现。"
+          },
+          {
+            "when": {
+              "q1": "sync",
+              "q2": "realtime",
+              "q3": "snapshot"
+            },
+            "result": "保留当前 withIdempotency 两态方案",
+            "reason": "同步返回首次结果是当前方案的独有能力。"
+          }
+        ],
+        "defaultResult": "保留当前 withIdempotency 两态方案",
+        "defaultReason": "默认要求同步且结果一致。"
+      },
+      "updatedAt": "2026-06-08",
+      "repoUpdatedAt": "2026-06-08",
+      "lastCodeChangeAt": "2026-06-02"
+    },
+    {
+      "id": "m.be.createOrder",
+      "name": "createOrder",
+      "signature": "createOrder(cmd: CreateOrderCmd, ctx: TxContext): Promise<Order>",
+      "layer": "backend",
+      "stack": "Java 21 + Spring Boot",
+      "module": "下单",
+      "summary": "领域层创建订单聚合根，校验库存与价格快照，并在同一事务内写主档与明细。",
+      "what": {
+        "params": [
+          {
+            "name": "cmd",
+            "type": "CreateOrderCmd",
+            "desc": "已复核的价格快照、SKU 列表、幂等键"
+          },
+          {
+            "name": "ctx",
+            "type": "TxContext",
+            "desc": "事务上下文"
+          }
+        ],
+        "returns": "Order 聚合根",
+        "sideEffects": [
+          "写 order / order_item",
+          "扣减库存预留",
+          "发 Outbox 事件"
+        ],
+        "callers": [
+          "withIdempotency",
+          "POST /api/orders"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "用户确认下单",
+          "后台补单"
+        ],
+        "problemsSolved": [
+          "保证主档与明细原子落库",
+          "价格以复核快照为准，不受下游波动影响",
+          "事件与业务写入同一事务，避免消息先于数据"
+        ],
+        "preconditions": [
+          "价格已由 BFF 复核",
+          "幂等键已占位成功",
+          "库存预留接口可用"
+        ],
+        "layerReason": "聚合根一致性与事务边界属于领域层，不能上移到 BFF。",
+        "counterExample": {
+          "title": "先写订单再异步发消息",
+          "desc": "进程在两者之间崩溃，消息发出但订单回滚；或订单成功但消息丢失，下游永远不知道。",
+          "code": "repo.save(order);\nmq.send(event); // 非事务，存在中间态"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "Saga 分步事务",
+          "layer": "backend",
+          "pros": [
+            "跨服务长事务可补偿"
+          ],
+          "cons": [
+            "补偿逻辑复杂",
+            "最终一致"
+          ],
+          "whenToUse": "库存/支付分属不同服务且无法同库事务",
+          "migrationCost": "高（8 人日）",
+          "affectedLayers": [
+            "backend",
+            "data",
+            "infra"
+          ],
+          "codeSnippet": "saga.step(reserveStock).compensate(releaseStock).step(createOrder);"
+        },
+        {
+          "name": "直接存储过程写库",
+          "layer": "data",
+          "pros": [
+            "少一次网络往返"
+          ],
+          "cons": [
+            "业务逻辑沉入数据库难维护"
+          ],
+          "whenToUse": "遗留系统且无法改造应用",
+          "migrationCost": "中（3 人日）",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "CALL sp_create_order(...);"
+        }
+      ],
+      "comparisonConclusion": "当订单主档与明细在同一数据库且需强一致时选当前聚合根 + 单事务 + Outbox；若库存与支付分属不同服务且无法共库，则改用 Saga 分步事务并明确补偿；只有在遗留系统无法改造应用层的条件下，才允许存储过程写库；任何条件下都不得把消息发送放在事务之外。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "下单失败但库存已锁",
+          "strategy": "展示带剩余时间的「处理中」状态，由库存预留 TTL 自动释放，不引导用户重复提交",
+          "codeSnippet": "showPending({ ttlSec: 120, key });",
+          "monitoring": "ui_pending_order_total"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "后端已提交但响应丢失",
+          "strategy": "按幂等键查询既有结果并原样返回，不触发二次创建",
+          "codeSnippet": "const existing = await orderSvc.findByKey(key);\nif (existing) return existing;",
+          "monitoring": "create_response_lost_recovered"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "事务提交后 Outbox 投递失败",
+          "strategy": "Outbox 表 + 定时补投，消息至少一次投递，消费侧去重",
+          "codeSnippet": "@Transactional void create(...) {\n  repo.save(order); outbox.insert(event);\n}\n// relay 每 5s 补投",
+          "monitoring": "outbox_unsent_age、补投成功率"
+        },
+        {
+          "layer": "data",
+          "failureMode": "唯一索引冲突（重复插入）",
+          "strategy": "捕获 DuplicateKeyException 转为幂等命中，返回既有订单",
+          "codeSnippet": "catch (DuplicateKeyException e) {\n  return repo.findByIdempotencyKey(key);\n}",
+          "monitoring": "duplicate_key_hit_total"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "数据库主库故障切换",
+          "strategy": "切换窗口内拒绝写请求并返回可重试状态，禁止自动重放写操作",
+          "codeSnippet": "if (!primaryHealthy) throw new RetryableWriteUnavailable();",
+          "monitoring": "db_failover_writes_rejected"
+        }
+      ],
+      "pitfalls": [
+        "Outbox 事件必须与业务写在同一个 @Transactional 里",
+        "不要在事务内做远程调用",
+        "价格快照要随订单落库，否则事后无法对账"
+      ],
+      "tags": [
+        "下单",
+        "事务",
+        "聚合根",
+        "Outbox"
+      ],
+      "repoPath": "services/order/src/main/java/.../OrderService.java",
+      "links": {
+        "upstream": [
+          "m.be.idempotentGuard",
+          "m.bff.createOrder"
+        ],
+        "downstream": [
+          "m.data.insertOrderTx",
+          "m.be.publishOrderEvent"
+        ],
+        "related": []
+      },
+      "examples": [
+        {
+          "scene": "业务写入与事件同事务",
+          "code": "@Transactional\npublic Order create(CreateOrderCmd cmd) {\n  Order o = Order.from(cmd);\n  repo.save(o);\n  outbox.insert(OrderCreated.of(o));\n  return o;\n}",
+          "explain": "消息落库而非直接发送，避免中间态。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "库存与支付是否与订单在同一数据库？",
+            "options": [
+              {
+                "label": "是",
+                "value": "same",
+                "next": "q2"
+              },
+              {
+                "label": "否，跨服务",
+                "value": "cross",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否为无法改造应用的遗留系统？",
+            "options": [
+              {
+                "label": "是",
+                "value": "legacy",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "modern",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "cross"
+            },
+            "result": "Saga 分步事务",
+            "reason": "跨服务无法共库事务，只能用补偿式最终一致。"
+          },
+          {
+            "when": {
+              "q2": "legacy"
+            },
+            "result": "直接存储过程写库",
+            "reason": "遗留约束下只能在数据库侧保证原子性。"
+          },
+          {
+            "when": {
+              "q1": "same",
+              "q2": "modern"
+            },
+            "result": "保留当前聚合根 + 单事务 + Outbox",
+            "reason": "同库场景下强一致成本最低。"
+          }
+        ],
+        "defaultResult": "保留当前聚合根 + 单事务 + Outbox",
+        "defaultReason": "默认同库强一致。"
+      },
+      "updatedAt": "2026-10-12",
+      "repoUpdatedAt": "2026-10-12",
+      "lastCodeChangeAt": "2026-10-20"
+    },
+    {
+      "id": "m.data.redisDedupe",
+      "name": "SETNX dedupe:{key}",
+      "signature": "SET dedupe:{key} <state> NX EX <ttl>  →  1 | 0",
+      "layer": "data",
+      "stack": "Redis 7",
+      "module": "下单",
+      "summary": "用单条原子命令实现幂等占位，是后端幂等与上传去重共用的数据层原语。",
+      "what": {
+        "params": [
+          {
+            "name": "key",
+            "type": "string",
+            "desc": "业务幂等键，含租户前缀"
+          },
+          {
+            "name": "state",
+            "type": "string",
+            "desc": "PROCESSING / DONE + 结果快照"
+          }
+        ],
+        "returns": "1 表示抢到占位；0 表示已有执行体或已完成",
+        "sideEffects": [
+          "写 Redis 键",
+          "触发过期淘汰"
+        ],
+        "callers": [
+          "withIdempotency",
+          "POST /api/upload/token"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "多实例并发去重",
+          "短期状态占位"
+        ],
+        "problemsSolved": [
+          "原子性由 Redis 单线程保证",
+          "TTL 自动回收，无需清理任务",
+          "延迟低于数据库唯一索引冲突路径"
+        ],
+        "preconditions": [
+          "Redis 主从/集群配置一致",
+          "客户端未开启会拆命令的管道重写",
+          "TTL 大于业务最大耗时"
+        ],
+        "layerReason": "原子占位是存储层能力；应用层无法在分布式下自行实现。",
+        "counterExample": {
+          "title": "GET + SET 两步",
+          "desc": "两个实例同时 GET 到 nil，都执行 SET，去重完全失效。",
+          "code": "if (redis.get(k) == null) redis.set(k, v); // 非原子"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "数据库唯一索引",
+          "layer": "data",
+          "pros": [
+            "持久化可靠",
+            "不受 Redis 故障影响"
+          ],
+          "cons": [
+            "每次冲突要走异常路径",
+            "延迟更高"
+          ],
+          "whenToUse": "作为强制第二道防线，与 SETNX 叠加",
+          "migrationCost": "低",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "ALTER TABLE t ADD UNIQUE KEY uk_idem (idempotency_key);"
+        },
+        {
+          "name": "Redis Lua 脚本封装状态机",
+          "layer": "data",
+          "pros": [
+            "多步判断仍原子",
+            "支持重放结果"
+          ],
+          "cons": [
+            "脚本调试与版本管理成本高"
+          ],
+          "whenToUse": "需要区分 PROCESSING/DONE 并做等待时",
+          "migrationCost": "中（2 人日）",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "EVAL idem_script 1 key state ttl"
+        },
+        {
+          "name": "etcd 租约锁",
+          "layer": "infra",
+          "pros": [
+            "强一致"
+          ],
+          "cons": [
+            "吞吐低",
+            "多一套依赖"
+          ],
+          "whenToUse": "配置变更类低频强一致场景",
+          "migrationCost": "高（4 人日）",
+          "affectedLayers": [
+            "backend",
+            "infra"
+          ],
+          "codeSnippet": "etcd.lease.grant(30).then(l => put(k, v, l));"
+        }
+      ],
+      "comparisonConclusion": "当只需高频原子占位且能接受 Redis 故障时由唯一索引兜底时选当前 SETNX；若需要区分执行中/已完成并让并发方等待结果，则改用 Lua 脚本状态机；只有在配置变更类低频强一致条件下，才考虑 etcd 租约锁；数据库唯一索引任何生产条件下都必须叠加保留，不得作为唯一手段。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "去重失败导致用户看到两次结果",
+          "strategy": "以幂等键做结果聚合，UI 只渲染首个 settle 的响应",
+          "codeSnippet": "const first = firstSettledByKey(key);\nrender(first);",
+          "monitoring": "ui_duplicate_result_suppressed"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "不同端生成了不同键",
+          "strategy": "BFF 统一规范化键（租户 + 业务主键 + 版本）后再透传",
+          "codeSnippet": "key = `${tenant}:${cartId}:${version}`;",
+          "monitoring": "idem_key_normalized_total"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "SETNX 返回 0 但无结果可读",
+          "strategy": "短暂等待后重试读取，超时则按冲突返回 409 让上游查询",
+          "codeSnippet": "await waitForResult(key, 2_000) ?? conflict(409);",
+          "monitoring": "idem_wait_timeout_total"
+        },
+        {
+          "layer": "data",
+          "failureMode": "Redis 完全不可用",
+          "strategy": "降级走数据库唯一索引，同时把去重失败计数打到告警",
+          "codeSnippet": "return db.insertWithUniqueKey(key, payload); // 冲突即 409",
+          "monitoring": "redis_unavailable_degrade_total"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "键过期策略误删活跃占位",
+          "strategy": "TTL 由配置中心统一下发，禁止代码内硬编码；监控过期早于业务完成的比例",
+          "codeSnippet": "ttl = config.get('idem.ttl', 120); // 禁止魔法数字",
+          "monitoring": "idem_ttl_early_expire_rate"
+        }
+      ],
+      "pitfalls": [
+        "NX 与 EX 必须写在同一条命令，分开就不是原子",
+        "key 要带租户前缀，否则跨租户互相误杀",
+        "主从切换可能丢未同步的占位，必须叠加数据库唯一索引"
+      ],
+      "tags": [
+        "幂等",
+        "Redis",
+        "SETNX",
+        "去重",
+        "数据层"
+      ],
+      "repoPath": "infra/redis/idem_keys.md",
+      "links": {
+        "upstream": [
+          "m.be.idempotentGuard",
+          "m.bff.createUploadToken"
+        ],
+        "downstream": [],
+        "related": [
+          "m.data.insertOrderTx"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "一条命令完成占位",
+          "code": "SET dedupe:order:42 PROCESSING NX EX 120",
+          "explain": "NX + EX 在同一条命令内才能保证原子与自动回收。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "是否需要区分执行中/已完成并让并发方等待？",
+            "options": [
+              {
+                "label": "是",
+                "value": "states",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "simple",
+                "next": "q2"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否是低频但要求强一致的配置类操作？",
+            "options": [
+              {
+                "label": "是",
+                "value": "strong",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "highfreq",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "states"
+            },
+            "result": "Redis Lua 脚本封装状态机",
+            "reason": "多步判断必须整体原子，Lua 是唯一低成本方案。"
+          },
+          {
+            "when": {
+              "q2": "strong"
+            },
+            "result": "etcd 租约锁",
+            "reason": "低频强一致场景可以承受 etcd 的吞吐代价。"
+          },
+          {
+            "when": {
+              "q1": "simple",
+              "q2": "highfreq"
+            },
+            "result": "保留当前 SETNX + 数据库唯一索引",
+            "reason": "高频简单占位用单条原子命令最划算。"
+          }
+        ],
+        "defaultResult": "保留当前 SETNX + 数据库唯一索引",
+        "defaultReason": "默认高频简单占位。"
+      },
+      "updatedAt": "2026-04-18",
+      "repoUpdatedAt": "2026-04-18",
+      "lastCodeChangeAt": "2026-04-18"
+    },
+    {
+      "id": "m.data.insertOrderTx",
+      "name": "insertOrderWithTx",
+      "signature": "insertOrderWithTx(conn: Connection, order: Order, items: OrderItem[]): TxResult",
+      "layer": "data",
+      "stack": "MySQL 8 + InnoDB",
+      "module": "下单",
+      "summary": "在单个事务内写订单主档、明细与 Outbox，并以唯一索引兜住重复提交。",
+      "what": {
+        "params": [
+          {
+            "name": "conn",
+            "type": "Connection",
+            "desc": "已开启事务的连接"
+          },
+          {
+            "name": "order",
+            "type": "Order",
+            "desc": "含 idempotency_key 与价格快照"
+          }
+        ],
+        "returns": "TxResult：{ orderId, committed, duplicate }",
+        "sideEffects": [
+          "写 3 张表",
+          "加间隙锁",
+          "产生 binlog"
+        ],
+        "callers": [
+          "createOrder"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "订单落库"
+        ],
+        "problemsSolved": [
+          "主档/明细/事件要么全成功要么全回滚",
+          "唯一索引是最后一道防重",
+          "价格快照落库便于事后对账"
+        ],
+        "preconditions": [
+          "idempotency_key 上有唯一索引",
+          "事务隔离级别为 READ COMMITTED 及以上",
+          "锁等待超时已配置"
+        ],
+        "layerReason": "原子性与约束由数据库保证，应用层重试不能替代。",
+        "counterExample": {
+          "title": "分三次 autocommit 写入",
+          "desc": "主档成功、明细失败，产生金额为零的幽灵订单。",
+          "code": "insert(order); insert(items); insert(outbox); // 各自提交"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "分库分表 + 最终一致",
+          "layer": "data",
+          "pros": [
+            "可水平扩展"
+          ],
+          "cons": [
+            "跨片无事务",
+            "需要补偿任务"
+          ],
+          "whenToUse": "单表超千万行且写入成为瓶颈",
+          "migrationCost": "高（10 人日）",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "shardBy(userId); // 跨片走 Saga"
+        },
+        {
+          "name": "事件溯源（只写事件表）",
+          "layer": "data",
+          "pros": [
+            "天然可回溯"
+          ],
+          "cons": [
+            "查询需物化视图",
+            "团队心智负担大"
+          ],
+          "whenToUse": "审计要求极强的资金系统",
+          "migrationCost": "很高（15 人日）",
+          "affectedLayers": [
+            "backend",
+            "data",
+            "infra"
+          ],
+          "codeSnippet": "appendEvent(OrderCreated); // 读模型异步构建"
+        }
+      ],
+      "comparisonConclusion": "当单表规模可控且要求强一致时选当前单事务三表写入；若单表超过千万行且写入已成为瓶颈，则改为分库分表并接受最终一致；只有在审计要求极强的资金系统条件下，才引入事件溯源；任何情况下唯一索引与价格快照都不得省略。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "写库超时用户看到失败",
+          "strategy": "以幂等键查询结果而非状态文案，避免用户重复提交",
+          "codeSnippet": "return queryByKey(key) ?? showPending();",
+          "monitoring": "write_timeout_query_rate"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "重复写返回 500",
+          "strategy": "把 DuplicateKey 统一映射为 409 + 首次订单号",
+          "codeSnippet": "map(DuplicateKeyException.class, 409, 'IDEM_HIT');",
+          "monitoring": "duplicate_mapped_409_total"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "事务未提交进程崩溃",
+          "strategy": "依赖 InnoDB 回滚 + Outbox 补投，不做应用层补偿写",
+          "codeSnippet": "// 崩溃由 DB 回滚，relay 只处理已提交 outbox",
+          "monitoring": "uncommitted_tx_detected"
+        },
+        {
+          "layer": "data",
+          "failureMode": "锁等待超时",
+          "strategy": "设置 innodb_lock_wait_timeout=5，超时返回可重试错误，禁止无限等待",
+          "codeSnippet": "SET SESSION innodb_lock_wait_timeout = 5;",
+          "monitoring": "lock_wait_timeout_total"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "磁盘满导致写入失败",
+          "strategy": "磁盘水位告警 + 下单入口熔断，避免半写入与雪崩",
+          "codeSnippet": "if (diskUsage > 0.85) circuitBreaker.open('order-write');",
+          "monitoring": "db_disk_usage、circuit_open_total"
+        }
+      ],
+      "pitfalls": [
+        "唯一索引必须建在 idempotency_key 而不是 order_id",
+        "不要在事务里做 HTTP 调用，锁会被远程延迟拖住",
+        "Outbox 表要定期归档，否则成为新的热点表"
+      ],
+      "tags": [
+        "下单",
+        "事务",
+        "MySQL",
+        "唯一索引",
+        "Outbox"
+      ],
+      "repoPath": "services/order/src/main/resources/mapper/OrderMapper.xml",
+      "links": {
+        "upstream": [
+          "m.be.createOrder"
+        ],
+        "downstream": [
+          "m.be.publishOrderEvent"
+        ],
+        "related": [
+          "m.data.redisDedupe"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "唯一索引 + 事务",
+          "code": "BEGIN;\nINSERT INTO orders(..., idempotency_key) VALUES(..., ?);\nINSERT INTO order_item(...) VALUES(...);\nINSERT INTO outbox(...) VALUES(...);\nCOMMIT;",
+          "explain": "三张表同事务，唯一索引兜住并发重复。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "订单单表是否已超千万行且写入成为瓶颈？",
+            "options": [
+              {
+                "label": "是",
+                "value": "huge",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "normal",
+                "next": "q2"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否为审计要求极强的资金系统？",
+            "options": [
+              {
+                "label": "是",
+                "value": "audit",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "no",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "huge"
+            },
+            "result": "分库分表 + 最终一致",
+            "reason": "单表容量已到瓶颈，必须牺牲跨片强一致。"
+          },
+          {
+            "when": {
+              "q2": "audit"
+            },
+            "result": "事件溯源（只写事件表）",
+            "reason": "极强审计要求下，不可变事件流是唯一完备记录。"
+          },
+          {
+            "when": {
+              "q1": "normal",
+              "q2": "no"
+            },
+            "result": "保留当前单事务三表写入",
+            "reason": "规模可控时，单事务强一致维护成本最低。"
+          }
+        ],
+        "defaultResult": "保留当前单事务三表写入",
+        "defaultReason": "默认单库强一致。"
+      },
+      "updatedAt": "2026-03-22",
+      "repoUpdatedAt": "2026-03-22",
+      "lastCodeChangeAt": "2026-03-22"
+    },
+    {
+      "id": "m.be.publishOrderEvent",
+      "name": "publishOrderCreated",
+      "signature": "publishOrderCreated(event: OrderCreated, ctx: OutboxCtx): Promise<PublishResult>",
+      "layer": "backend",
+      "stack": "Java 21 + Kafka",
+      "module": "消息",
+      "summary": "把 Outbox 中的订单事件投递到消息总线，供履约、通知、附件服务消费。",
+      "what": {
+        "params": [
+          {
+            "name": "event",
+            "type": "OrderCreated",
+            "desc": "含 orderId / tenantId / eventId"
+          },
+          {
+            "name": "ctx",
+            "type": "OutboxCtx",
+            "desc": "补投标记与重试次数"
+          }
+        ],
+        "returns": "PublishResult：{ sent, retried, deadLettered }",
+        "sideEffects": [
+          "写 Kafka topic",
+          "更新 outbox 状态",
+          "投递失败写死信"
+        ],
+        "callers": [
+          "createOrder",
+          "verifyUploadCallback",
+          "Outbox Relay"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "订单创建后触发履约、通知、附件归档"
+        ],
+        "problemsSolved": [
+          "业务写入与消息发出解耦但不错序",
+          "投递失败可补投",
+          "下游各自重试互不影响"
+        ],
+        "preconditions": [
+          "eventId 全局唯一",
+          "消费者实现幂等",
+          "topic 分区键使用 orderId 保序"
+        ],
+        "layerReason": "事件发布属于领域输出边界，必须由后端在事务提交后统一执行。",
+        "counterExample": {
+          "title": "在事务内直接 send",
+          "desc": "事务回滚但消息已发出，下游创建了不存在的订单履约单。",
+          "code": "@Transactional void create() { repo.save(o); kafka.send(e); }"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "同步 RPC 串行调用下游",
+          "layer": "backend",
+          "pros": [
+            "即时一致",
+            "实现直观"
+          ],
+          "cons": [
+            "下游故障拖垮下单",
+            "新增下游要改下单代码"
+          ],
+          "whenToUse": "下游仅 1 个且强依赖结果",
+          "migrationCost": "低（1 人日）",
+          "affectedLayers": [
+            "backend"
+          ],
+          "codeSnippet": "fulfillClient.create(order); notifyClient.send(order);"
+        },
+        {
+          "name": "CDC 直接读 binlog 发消息",
+          "layer": "data",
+          "pros": [
+            "零应用侵入",
+            "天然保序"
+          ],
+          "cons": [
+            "事件语义弱、含表结构耦合"
+          ],
+          "whenToUse": "已有 Debezium 且事件只需行变更",
+          "migrationCost": "中（3 人日）",
+          "affectedLayers": [
+            "backend",
+            "data",
+            "infra"
+          ],
+          "codeSnippet": "debezium.source('orders').sink('order.created');"
+        },
+        {
+          "name": "本地内存事件总线",
+          "layer": "backend",
+          "pros": [
+            "零依赖"
+          ],
+          "cons": [
+            "进程重启即丢",
+            "多实例不广播"
+          ],
+          "whenToUse": "仅单体测试环境",
+          "migrationCost": "低",
+          "affectedLayers": [
+            "backend"
+          ],
+          "codeSnippet": "eventBus.post(new OrderCreated(o));"
+        }
+      ],
+      "comparisonConclusion": "当下游 ≥ 2 个且要求下单链路不被下游故障拖垮时选当前 Outbox + Kafka；若下游只有 1 个且下单必须同步拿到其结果，则改用同步 RPC；只有在团队已有 Debezium 且事件只需表达行变更的条件下，才用 CDC 读 binlog；任何生产环境都不得使用本地内存事件总线。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "下单成功但通知未到达",
+          "strategy": "前端订单详情页提供「重新发送通知」入口，走后端补发接口",
+          "codeSnippet": "await api.post('/orders/' + id + '/resend');",
+          "monitoring": "manual_resend_total"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "聚合视图依赖下游状态超时",
+          "strategy": "视图里对下游字段做可空降级，主档信息始终可展示",
+          "codeSnippet": "view.fulfillment = await safeGet(() => f.status, null);",
+          "monitoring": "view_partial_degrade_rate"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "Kafka 不可用",
+          "strategy": "Outbox 保持未发送，Relay 指数退避补投，不丢事件",
+          "codeSnippet": "while (!sent) { await backoff(); sent = relay.trySend(); }",
+          "monitoring": "outbox_backlog_age、补投成功率"
+        },
+        {
+          "layer": "data",
+          "failureMode": "重复投递造成下游重复处理",
+          "strategy": "eventId 作为消费者幂等键，落 processed_event 表",
+          "codeSnippet": "INSERT IGNORE INTO processed_event(event_id) VALUES(?);",
+          "monitoring": "consumer_duplicate_suppressed"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "持续失败堆积死信",
+          "strategy": "超过 5 次进 DLQ 并告警，提供按 eventId 重放工具",
+          "codeSnippet": "if (retries > 5) dlq.send(event);",
+          "monitoring": "dlq_depth、dlq_oldest_age"
+        }
+      ],
+      "pitfalls": [
+        "分区键必须用 orderId，用 tenantId 会把同一订单的事件打散",
+        "至少一次投递，消费端幂等是硬要求",
+        "Outbox 归档不能删未发送记录"
+      ],
+      "tags": [
+        "消息",
+        "Kafka",
+        "Outbox",
+        "事件",
+        "跨链路"
+      ],
+      "repoPath": "services/order/src/main/java/.../OrderEventPublisher.java",
+      "links": {
+        "upstream": [
+          "m.be.createOrder",
+          "m.be.verifyUploadCallback"
+        ],
+        "downstream": [
+          "m.infra.mqRetry"
+        ],
+        "related": []
+      },
+      "examples": [
+        {
+          "scene": "事务提交后由 Relay 补投",
+          "code": "// Relay 只扫描 status = 'PENDING' 的已提交记录\noutbox.pending().forEach(e -> kafka.send('order.created', e.orderId, e));",
+          "explain": "发送发生在事务之外，但事实来源于同事务的 Outbox。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "下游服务是否 ≥ 2 个？",
+            "options": [
+              {
+                "label": "是",
+                "value": "many",
+                "next": "q2"
+              },
+              {
+                "label": "否，仅 1 个",
+                "value": "one",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "是否已有 Debezium 且事件只需表达行变更？",
+            "options": [
+              {
+                "label": "是",
+                "value": "cdc",
+                "next": "END"
+              },
+              {
+                "label": "否",
+                "value": "no",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "one"
+            },
+            "result": "同步 RPC 串行调用下游",
+            "reason": "仅一个下游且需要结果时，同步调用最简单。"
+          },
+          {
+            "when": {
+              "q2": "cdc"
+            },
+            "result": "CDC 直接读 binlog 发消息",
+            "reason": "已有流处理设施且语义只需行变更，可减少应用侵入。"
+          },
+          {
+            "when": {
+              "q1": "many",
+              "q2": "no"
+            },
+            "result": "保留当前 Outbox + Kafka",
+            "reason": "多下游需要解耦与独立重试，Outbox 保证不丢。"
+          }
+        ],
+        "defaultResult": "保留当前 Outbox + Kafka",
+        "defaultReason": "默认多下游异步解耦。"
+      },
+      "updatedAt": "2026-09-28",
+      "repoUpdatedAt": "2026-09-28",
+      "lastCodeChangeAt": "2026-11-01"
+    },
+    {
+      "id": "m.infra.mqRetry",
+      "name": "configureRetryDLQ",
+      "signature": "configureRetryDLQ(topic: string, cfg: { maxRetries: number; backoff: string; dlqTopic: string }): void",
+      "layer": "infra",
+      "stack": "Terraform + Kafka",
+      "module": "消息",
+      "summary": "为订单与上传事件统一配置重试退避与死信队列，防止单条毒消息阻塞整条链路。",
+      "what": {
+        "params": [
+          {
+            "name": "cfg.maxRetries",
+            "type": "number",
+            "desc": "进入 DLQ 前的最大重试次数，默认 5"
+          },
+          {
+            "name": "cfg.backoff",
+            "type": "string",
+            "desc": "指数退避策略"
+          }
+        ],
+        "returns": "void（声明式配置）",
+        "sideEffects": [
+          "创建 DLQ topic",
+          "修改消费者重试策略",
+          "写告警规则"
+        ],
+        "callers": [
+          "Terraform 流水线"
+        ]
+      },
+      "why": {
+        "scenarios": [
+          "下游服务短时不可用",
+          "某条消息格式异常永远消费失败"
+        ],
+        "problemsSolved": [
+          "瞬时故障自动恢复",
+          "毒消息隔离，不阻塞后续消息",
+          "失败事件可审计与重放"
+        ],
+        "preconditions": [
+          "消费者幂等",
+          "DLQ 有负责人与清理流程",
+          "重试间隔小于业务可接受延迟"
+        ],
+        "layerReason": "重试与死信属于消息基础设施策略，统一在设施层配置比每个消费者各写一套更可控。",
+        "counterExample": {
+          "title": "无限重试同一条消息",
+          "desc": "一条格式错误的消息卡住分区，后面所有订单事件全部延迟。",
+          "code": "while (true) { try { consume(); } catch { /* 原地重试 */ } }"
+        }
+      },
+      "alternatives": [
+        {
+          "name": "消费者内自建重试",
+          "layer": "backend",
+          "pros": [
+            "可按异常类型定制"
+          ],
+          "cons": [
+            "各服务策略不一致",
+            "容易写成无限重试"
+          ],
+          "whenToUse": "个别服务有特殊退避需求时作为补充",
+          "migrationCost": "低",
+          "affectedLayers": [
+            "backend"
+          ],
+          "codeSnippet": "@Retryable(maxAttempts = 3, backoff = @Backoff(1000))"
+        },
+        {
+          "name": "失败即丢弃 + 定时全量对账",
+          "layer": "data",
+          "pros": [
+            "无 DLQ 维护成本"
+          ],
+          "cons": [
+            "恢复延迟小时级",
+            "对账任务重"
+          ],
+          "whenToUse": "事件可完全由主表重建",
+          "migrationCost": "中（3 人日）",
+          "affectedLayers": [
+            "backend",
+            "data"
+          ],
+          "codeSnippet": "scheduler.reconcile('order_created'); // 每小时"
+        }
+      ],
+      "comparisonConclusion": "当事件不可由主表低成本重建且要求分钟级恢复时选当前统一重试 + DLQ；若个别服务需要按异常类型定制退避，则在消费者内补充自建重试，但不得替代统一策略；只有在事件可由主表完全重建且能接受小时级延迟的条件下，才用丢弃 + 全量对账；任何条件下都禁止无限原地重试。",
+      "fallback": [
+        {
+          "layer": "frontend",
+          "failureMode": "下游状态长时间不更新",
+          "strategy": "详情页展示「处理中」与已等待时长，提供刷新而非重新下单",
+          "codeSnippet": "showPending({ since: createdAt, sla: '5min' });",
+          "monitoring": "ui_long_pending_count"
+        },
+        {
+          "layer": "bff",
+          "failureMode": "聚合接口被慢消费者拖慢",
+          "strategy": "下游状态查询加 300ms 超时并降级为 null",
+          "codeSnippet": "withTimeout(300, () => downstream.status()) ?? null;",
+          "monitoring": "bff_downstream_timeout_rate"
+        },
+        {
+          "layer": "backend",
+          "failureMode": "消费者抛非瞬时异常",
+          "strategy": "按异常分类：瞬时进重试，格式错误直接进 DLQ，不占用重试次数",
+          "codeSnippet": "if (e instanceof DeserializationError) dlq.send(msg); else retry(msg);",
+          "monitoring": "non_retryable_to_dlq_total"
+        },
+        {
+          "layer": "data",
+          "failureMode": "DLQ 消息无人处理",
+          "strategy": "DLQ 记录 eventId / 失败原因 / 首次失败时间，超 SLA 自动升级告警",
+          "codeSnippet": "dlq.record({ eventId, reason, firstFailedAt });",
+          "monitoring": "dlq_oldest_age、dlq_unhandled"
+        },
+        {
+          "layer": "infra",
+          "failureMode": "重试风暴放大故障",
+          "strategy": "指数退避 + 抖动，并对单分区设置最大在途重试数",
+          "codeSnippet": "backoff = base * 2 ** n + jitter();\nmaxInFlightRetriesPerPartition = 20;",
+          "monitoring": "retry_storm_guard_hits"
+        }
+      ],
+      "pitfalls": [
+        "重试必须加抖动，否则下游恢复瞬间被同时打垮",
+        "DLQ 不是垃圾桶，必须有负责人和重放工具",
+        "顺序性要求高的事件不能靠 DLQ 后补，会乱序"
+      ],
+      "tags": [
+        "消息",
+        "Kafka",
+        "重试",
+        "死信",
+        "Terraform",
+        "跨链路"
+      ],
+      "repoPath": "infra/terraform/kafka_retry.tf",
+      "links": {
+        "upstream": [
+          "m.be.publishOrderEvent"
+        ],
+        "downstream": [],
+        "related": [
+          "m.be.verifyUploadCallback"
+        ]
+      },
+      "examples": [
+        {
+          "scene": "指数退避 + 抖动 + DLQ",
+          "code": "retry:\n  maxRetries: 5\n  backoff: exponential(1s, jitter=true)\n  deadLetterTopic: order.created.dlq",
+          "explain": "抖动避免恢复瞬间的重试风暴。"
+        }
+      ],
+      "decisionTree": {
+        "questions": [
+          {
+            "id": "q1",
+            "question": "事件是否可由主表低成本重建？",
+            "options": [
+              {
+                "label": "是",
+                "value": "rebuild",
+                "next": "q2"
+              },
+              {
+                "label": "否",
+                "value": "unique",
+                "next": "END"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "能否接受小时级恢复延迟？",
+            "options": [
+              {
+                "label": "能",
+                "value": "hours",
+                "next": "END"
+              },
+              {
+                "label": "不能",
+                "value": "minutes",
+                "next": "END"
+              }
+            ]
+          }
+        ],
+        "rules": [
+          {
+            "when": {
+              "q1": "unique"
+            },
+            "result": "保留当前统一重试 + DLQ",
+            "reason": "事件不可重建时，DLQ 是唯一不丢数据的路径。"
+          },
+          {
+            "when": {
+              "q1": "rebuild",
+              "q2": "hours"
+            },
+            "result": "失败即丢弃 + 定时全量对账",
+            "reason": "可重建且能接受延迟时，对账比维护 DLQ 更省。"
+          },
+          {
+            "when": {
+              "q1": "rebuild",
+              "q2": "minutes"
+            },
+            "result": "保留当前统一重试 + DLQ",
+            "reason": "分钟级恢复要求下，不能等定时对账。"
+          }
+        ],
+        "defaultResult": "保留当前统一重试 + DLQ",
+        "defaultReason": "默认事件不可重建且要求快速恢复。"
+      },
+      "updatedAt": "2026-10-08",
+      "repoUpdatedAt": "2026-10-08",
+      "lastCodeChangeAt": "2026-10-08"
+    }
+  ],
+  "chains": [
+    {
+      "id": "c.upload",
+      "name": "文件上传主链路",
+      "entryMethodId": "m.fe.useUploadQueue",
+      "nodes": [
+        "m.fe.useUploadQueue",
+        "m.bff.createUploadToken",
+        "m.be.generatePresignedUrl",
+        "m.fe.uploadFile",
+        "m.infra.ossLifecycle",
+        "m.be.verifyUploadCallback",
+        "m.be.publishOrderEvent",
+        "m.infra.mqRetry"
+      ],
+      "edges": [
+        {
+          "from": "m.fe.useUploadQueue",
+          "to": "m.bff.createUploadToken",
+          "relation": "请求凭证"
+        },
+        {
+          "from": "m.bff.createUploadToken",
+          "to": "m.be.generatePresignedUrl",
+          "relation": "换取签名"
+        },
+        {
+          "from": "m.be.generatePresignedUrl",
+          "to": "m.fe.uploadFile",
+          "relation": "返回预签名 URL"
+        },
+        {
+          "from": "m.fe.uploadFile",
+          "to": "m.infra.ossLifecycle",
+          "relation": "写入临时前缀对象"
+        },
+        {
+          "from": "m.infra.ossLifecycle",
+          "to": "m.be.verifyUploadCallback",
+          "relation": "OSS 回调"
+        },
+        {
+          "from": "m.be.verifyUploadCallback",
+          "to": "m.be.publishOrderEvent",
+          "relation": "发布事件"
+        },
+        {
+          "from": "m.be.publishOrderEvent",
+          "to": "m.infra.mqRetry",
+          "relation": "重试/死信"
+        }
+      ],
+      "description": "从选择附件到对象落盘、事件投递的完整链路。跨链路共享节点 publishOrderCreated，改动它同时影响下单链路。"
+    },
+    {
+      "id": "c.order",
+      "name": "下单幂等链路",
+      "entryMethodId": "m.fe.submitOrder",
+      "nodes": [
+        "m.fe.submitOrder",
+        "m.bff.createOrder",
+        "m.be.idempotentGuard",
+        "m.data.redisDedupe",
+        "m.be.createOrder",
+        "m.data.insertOrderTx",
+        "m.be.publishOrderEvent",
+        "m.infra.mqRetry"
+      ],
+      "edges": [
+        {
+          "from": "m.fe.submitOrder",
+          "to": "m.bff.createOrder",
+          "relation": "携带幂等键提交"
+        },
+        {
+          "from": "m.bff.createOrder",
+          "to": "m.be.idempotentGuard",
+          "relation": "价格复核后透传"
+        },
+        {
+          "from": "m.be.idempotentGuard",
+          "to": "m.data.redisDedupe",
+          "relation": "SETNX 原子占位"
+        },
+        {
+          "from": "m.be.idempotentGuard",
+          "to": "m.be.createOrder",
+          "relation": "占位成功后执行"
+        },
+        {
+          "from": "m.be.createOrder",
+          "to": "m.data.insertOrderTx",
+          "relation": "单事务写三表"
+        },
+        {
+          "from": "m.be.createOrder",
+          "to": "m.be.publishOrderEvent",
+          "relation": "Outbox 落库后投递"
+        },
+        {
+          "from": "m.be.publishOrderEvent",
+          "to": "m.infra.mqRetry",
+          "relation": "重试/死信"
+        }
+      ],
+      "description": "覆盖连点拦截、SETNX 去重、单事务落库到事件投递。事故 i.order.duplicate 暴露了第 3 步最初缺失。"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "i.upload.callback",
+      "title": "附件回调验签公钥轮换事故：订单卡在「待上传」",
+      "symptom": "2026-08-14 14:05 起，约 18% 的订单附件已实际上传到 OSS，但业务侧一直停留在待上传；回调接口验签失败日志每分钟上千条，OSS 侧无回调投递失败记录。",
+      "rootCause": "KMS 公钥轮换时，签发服务已切到新公钥，回调验签服务仍只加载旧公钥且无双写窗口。验签失败后代码直接返回 200 丢弃消息，OSS 认为投递成功不再重投，导致对象已落盘但业务状态永远丢失。",
+      "missingFallbacks": [
+        {
+          "layer": "frontend",
+          "item": "上传 90s 未收到终态时主动查询对象状态",
+          "expected": "m.fe.useUploadQueue 的后端层兜底（事故发生时未实现）"
+        },
+        {
+          "layer": "backend",
+          "item": "双公钥窗口 + 验签失败进重试队列而非丢弃",
+          "expected": "m.be.verifyUploadCallback 的后端层兜底"
+        },
+        {
+          "layer": "data",
+          "item": "objectKey 唯一索引 + INSERT IGNORE 支撑重投幂等",
+          "expected": "m.be.verifyUploadCallback 的数据层兜底"
+        },
+        {
+          "layer": "infra",
+          "item": "主备回调地址 + 清单定时对账补齐",
+          "expected": "m.be.verifyUploadCallback 的基础设施层兜底"
+        },
+        {
+          "layer": "infra",
+          "item": "验签失败率告警阈值",
+          "expected": "监控项 callback_sign_fail_rate 未配置告警"
+        }
+      ],
+      "relatedMethodIds": [
+        "m.be.verifyUploadCallback",
+        "m.fe.useUploadQueue",
+        "m.fe.uploadFile",
+        "m.infra.ossLifecycle",
+        "m.be.publishOrderEvent"
+      ],
+      "improvement": "① 验签支持新旧双公钥并保留 24h 窗口；② 验签失败一律进 DLQ，禁止返回 200 丢弃；③ 增加对象清单对账任务与前端主动查询；④ callback_sign_fail_rate > 0.5% 触发 P2 告警；⑤ 公钥轮换加入发布检查单。",
+      "occurredAt": "2026-08-14"
+    },
+    {
+      "id": "i.order.duplicate",
+      "title": "重复提交产生双份订单",
+      "symptom": "2026-06-02 大促首分钟，47 个用户各产生 2 笔金额相同的订单；前端按钮已置灰，但仍有重复请求到达；订单表未报唯一键冲突。",
+      "rootCause": "幂等实现为「先查存在再插入」的非原子 check-then-act，两个并发请求同时查到不存在并双双插入；同时前端刷新页面后重新生成了幂等键，后端无法识别是同一次提交；订单表当时未在 idempotency_key 上建唯一索引。",
+      "missingFallbacks": [
+        {
+          "layer": "frontend",
+          "item": "幂等键与购物车版本绑定，刷新后保持不变",
+          "expected": "m.fe.submitOrder 的前端层兜底"
+        },
+        {
+          "layer": "bff",
+          "item": "透传原始 Idempotency-Key 且缺失即 400",
+          "expected": "m.bff.createOrder 的 BFF 层兜底"
+        },
+        {
+          "layer": "backend",
+          "item": "SETNX 原子占位 + 结果快照",
+          "expected": "m.be.idempotentGuard 的后端层兜底"
+        },
+        {
+          "layer": "data",
+          "item": "idempotency_key 唯一索引",
+          "expected": "m.data.insertOrderTx 的数据层兜底（最关键的缺失）"
+        },
+        {
+          "layer": "infra",
+          "item": "按用户维度限流，抑制 429 触发的反复点击",
+          "expected": "m.fe.submitOrder 的基础设施层兜底"
+        }
+      ],
+      "relatedMethodIds": [
+        "m.fe.submitOrder",
+        "m.bff.createOrder",
+        "m.be.idempotentGuard",
+        "m.data.redisDedupe",
+        "m.be.createOrder",
+        "m.data.insertOrderTx"
+      ],
+      "improvement": "① 引入 withIdempotency 两态占位与结果快照；② 订单表补唯一索引并统一映射 409；③ 幂等键改为购物车 id + version 稳定生成；④ 下游增加 duplicate_key_hit_total 告警；⑤ 把「防重必须双层」写入 Code Review 检查单。",
+      "occurredAt": "2026-06-02"
+    }
+  ],
+  "troubleshooting": {
+    "flows": [
+      {
+        "id": "t.upload.stuck",
+        "symptom": "文件上传卡在 99% / 一直转圈，但 OSS 上能看到对象",
+        "steps": [
+          {
+            "id": "s1",
+            "question": "对象是否已在 OSS 上存在？",
+            "options": [
+              {
+                "label": "已存在，etag 正常",
+                "value": "exists",
+                "next": "s2",
+                "hint": "说明上传动作本身成功，问题在状态回写"
+              },
+              {
+                "label": "不存在或部分分片",
+                "value": "missing",
+                "next": "RESULT",
+                "hint": "问题在上传本身，重试并查看 OSS 5xx"
+              }
+            ]
+          },
+          {
+            "id": "s2",
+            "question": "回调接口日志里有没有验签失败或 5xx？",
+            "options": [
+              {
+                "label": "有大量验签失败",
+                "value": "signfail",
+                "next": "s3",
+                "hint": "优先怀疑公钥轮换窗口"
+              },
+              {
+                "label": "回调根本没进来",
+                "value": "nocallback",
+                "next": "RESULT",
+                "hint": "怀疑回调地址 / 网络 / OSS 投递配置"
+              },
+              {
+                "label": "回调成功但状态仍不对",
+                "value": "written",
+                "next": "RESULT",
+                "hint": "怀疑读从库延迟或前端状态查询缓存"
+              }
+            ]
+          },
+          {
+            "id": "s3",
+            "question": "最近 24h 是否做过 KMS 公钥轮换？",
+            "options": [
+              {
+                "label": "是",
+                "value": "rotated",
+                "next": "RESULT",
+                "hint": "几乎可以确定是双公钥窗口缺失"
+              },
+              {
+                "label": "否",
+                "value": "notrotated",
+                "next": "RESULT",
+                "hint": "检查验签用的原始 body 字节是否被框架改写"
+              }
+            ]
+          }
+        ],
+        "resultMethodId": "m.be.verifyUploadCallback",
+        "resultHint": "优先看「分层兜底卡」的后端层（双公钥 + DLQ）与前端层（90s 主动查询），再沿链路卡检查 OSS 回调 → 事件投递这一段。",
+        "relatedChainId": "c.upload",
+        "relatedIncidentId": "i.upload.callback"
+      },
+      {
+        "id": "t.order.duplicate",
+        "symptom": "用户投诉下了两单 / 被扣了两次",
+        "steps": [
+          {
+            "id": "s1",
+            "question": "两笔订单的 idempotency_key 是否相同？",
+            "options": [
+              {
+                "label": "不同",
+                "value": "different",
+                "next": "s2",
+                "hint": "幂等键在客户端被重新生成了"
+              },
+              {
+                "label": "相同",
+                "value": "same",
+                "next": "s3",
+                "hint": "说明后端去重逻辑被并发击穿"
+              }
+            ]
+          },
+          {
+            "id": "s2",
+            "question": "用户中途是否刷新过页面或改动过购物车？",
+            "options": [
+              {
+                "label": "是",
+                "value": "refresh",
+                "next": "RESULT",
+                "hint": "幂等键未与购物车版本稳定绑定"
+              },
+              {
+                "label": "否",
+                "value": "norefresh",
+                "next": "RESULT",
+                "hint": "检查 BFF 是否改写了请求头"
+              }
+            ]
+          },
+          {
+            "id": "s3",
+            "question": "幂等实现是 SETNX 原子占位吗？",
+            "options": [
+              {
+                "label": "不是，先查再写",
+                "value": "checkthenact",
+                "next": "RESULT",
+                "hint": "并发窗口下必然重复"
+              },
+              {
+                "label": "是",
+                "value": "atomic",
+                "next": "RESULT",
+                "hint": "检查 Redis 主从切换是否丢了占位"
+              }
+            ]
+          }
+        ],
+        "resultMethodId": "m.be.idempotentGuard",
+        "resultHint": "先看「分层兜底卡」的数据层（唯一索引）与后端层（原子占位），再看事故复盘卡 i.order.duplicate 的逐层缺失对照。",
+        "relatedChainId": "c.order",
+        "relatedIncidentId": "i.order.duplicate"
+      },
+      {
+        "id": "t.upload.signfail",
+        "symptom": "上传报 403 SignatureDoesNotMatch",
+        "steps": [
+          {
+            "id": "s1",
+            "question": "是否只在个别文件类型上出现？",
+            "options": [
+              {
+                "label": "是，特定类型",
+                "value": "contenttype",
+                "next": "RESULT",
+                "hint": "PUT 的 Content-Type 与 policy 绑定值不一致"
+              },
+              {
+                "label": "否，全部失败",
+                "value": "all",
+                "next": "s2",
+                "hint": "怀疑凭证过期或时钟漂移"
+              }
+            ]
+          },
+          {
+            "id": "s2",
+            "question": "签发节点时钟是否与 NTP 偏差超过 60s？",
+            "options": [
+              {
+                "label": "是",
+                "value": "drift",
+                "next": "RESULT",
+                "hint": "签名提前失效"
+              },
+              {
+                "label": "否",
+                "value": "ok",
+                "next": "RESULT",
+                "hint": "检查 objectKey 是否含未编码中文或路径穿越字符"
+              }
+            ]
+          }
+        ],
+        "resultMethodId": "m.be.generatePresignedUrl",
+        "resultHint": "重点看「分层兜底卡」的前端层（提前 30s 续签）与基础设施层（NTP 对齐 + 60s 偏移余量）。",
+        "relatedChainId": "c.upload",
+        "relatedIncidentId": null
+      }
+    ],
+    "sceneSynonyms": {
+      "文件上传": [
+        "上传",
+        "附件",
+        "OSS",
+        "对象存储",
+        "直传",
+        "预签名",
+        "断点续传",
+        "分片",
+        "回调",
+        "验签"
+      ],
+      "下单幂等": [
+        "下单",
+        "订单",
+        "重复提交",
+        "连点",
+        "幂等",
+        "去重",
+        "扣两次",
+        "SETNX",
+        "防重"
+      ],
+      "消息投递": [
+        "消息",
+        "事件",
+        "Kafka",
+        "MQ",
+        "Outbox",
+        "重试",
+        "死信",
+        "DLQ",
+        "通知",
+        "履约"
+      ],
+      "数据一致性": [
+        "事务",
+        "一致性",
+        "原子",
+        "回滚",
+        "唯一索引",
+        "binlog",
+        "CDC",
+        "补偿",
+        "Saga"
+      ],
+      "鉴权配额": [
+        "鉴权",
+        "权限",
+        "租户",
+        "配额",
+        "限流",
+        "凭证",
+        "密钥",
+        "KMS",
+        "最小权限"
+      ],
+      "性能优化": [
+        "并发",
+        "连接池",
+        "限流",
+        "卡顿",
+        "弱网",
+        "大文件",
+        "Worker",
+        "削峰"
+      ]
+    },
+    "sceneExamples": [
+      "做文件上传",
+      "防止重复下单",
+      "上传回调总是失败",
+      "跨服务发通知",
+      "多租户配额控制"
+    ]
+  }
+};

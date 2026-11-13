@@ -1,0 +1,108 @@
+{
+  "flows": [
+    {
+      "id": "t.upload.stuck",
+      "symptom": "文件上传卡在 99% / 一直转圈，但 OSS 上能看到对象",
+      "steps": [
+        {
+          "id": "s1",
+          "question": "对象是否已在 OSS 上存在？",
+          "options": [
+            { "label": "已存在，etag 正常", "value": "exists", "next": "s2", "hint": "说明上传动作本身成功，问题在状态回写" },
+            { "label": "不存在或部分分片", "value": "missing", "next": "RESULT", "hint": "问题在上传本身，重试并查看 OSS 5xx" }
+          ]
+        },
+        {
+          "id": "s2",
+          "question": "回调接口日志里有没有验签失败或 5xx？",
+          "options": [
+            { "label": "有大量验签失败", "value": "signfail", "next": "s3", "hint": "优先怀疑公钥轮换窗口" },
+            { "label": "回调根本没进来", "value": "nocallback", "next": "RESULT", "hint": "怀疑回调地址 / 网络 / OSS 投递配置" },
+            { "label": "回调成功但状态仍不对", "value": "written", "next": "RESULT", "hint": "怀疑读从库延迟或前端状态查询缓存" }
+          ]
+        },
+        {
+          "id": "s3",
+          "question": "最近 24h 是否做过 KMS 公钥轮换？",
+          "options": [
+            { "label": "是", "value": "rotated", "next": "RESULT", "hint": "几乎可以确定是双公钥窗口缺失" },
+            { "label": "否", "value": "notrotated", "next": "RESULT", "hint": "检查验签用的原始 body 字节是否被框架改写" }
+          ]
+        }
+      ],
+      "resultMethodId": "m.be.verifyUploadCallback",
+      "resultHint": "优先看「分层兜底卡」的后端层（双公钥 + DLQ）与前端层（90s 主动查询），再沿链路卡检查 OSS 回调 → 事件投递这一段。",
+      "relatedChainId": "c.upload",
+      "relatedIncidentId": "i.upload.callback"
+    },
+    {
+      "id": "t.order.duplicate",
+      "symptom": "用户投诉下了两单 / 被扣了两次",
+      "steps": [
+        {
+          "id": "s1",
+          "question": "两笔订单的 idempotency_key 是否相同？",
+          "options": [
+            { "label": "不同", "value": "different", "next": "s2", "hint": "幂等键在客户端被重新生成了" },
+            { "label": "相同", "value": "same", "next": "s3", "hint": "说明后端去重逻辑被并发击穿" }
+          ]
+        },
+        {
+          "id": "s2",
+          "question": "用户中途是否刷新过页面或改动过购物车？",
+          "options": [
+            { "label": "是", "value": "refresh", "next": "RESULT", "hint": "幂等键未与购物车版本稳定绑定" },
+            { "label": "否", "value": "norefresh", "next": "RESULT", "hint": "检查 BFF 是否改写了请求头" }
+          ]
+        },
+        {
+          "id": "s3",
+          "question": "幂等实现是 SETNX 原子占位吗？",
+          "options": [
+            { "label": "不是，先查再写", "value": "checkthenact", "next": "RESULT", "hint": "并发窗口下必然重复" },
+            { "label": "是", "value": "atomic", "next": "RESULT", "hint": "检查 Redis 主从切换是否丢了占位" }
+          ]
+        }
+      ],
+      "resultMethodId": "m.be.idempotentGuard",
+      "resultHint": "先看「分层兜底卡」的数据层（唯一索引）与后端层（原子占位），再看事故复盘卡 i.order.duplicate 的逐层缺失对照。",
+      "relatedChainId": "c.order",
+      "relatedIncidentId": "i.order.duplicate"
+    },
+    {
+      "id": "t.upload.signfail",
+      "symptom": "上传报 403 SignatureDoesNotMatch",
+      "steps": [
+        {
+          "id": "s1",
+          "question": "是否只在个别文件类型上出现？",
+          "options": [
+            { "label": "是，特定类型", "value": "contenttype", "next": "RESULT", "hint": "PUT 的 Content-Type 与 policy 绑定值不一致" },
+            { "label": "否，全部失败", "value": "all", "next": "s2", "hint": "怀疑凭证过期或时钟漂移" }
+          ]
+        },
+        {
+          "id": "s2",
+          "question": "签发节点时钟是否与 NTP 偏差超过 60s？",
+          "options": [
+            { "label": "是", "value": "drift", "next": "RESULT", "hint": "签名提前失效" },
+            { "label": "否", "value": "ok", "next": "RESULT", "hint": "检查 objectKey 是否含未编码中文或路径穿越字符" }
+          ]
+        }
+      ],
+      "resultMethodId": "m.be.generatePresignedUrl",
+      "resultHint": "重点看「分层兜底卡」的前端层（提前 30s 续签）与基础设施层（NTP 对齐 + 60s 偏移余量）。",
+      "relatedChainId": "c.upload",
+      "relatedIncidentId": null
+    }
+  ],
+  "sceneSynonyms": {
+    "文件上传": ["上传", "附件", "OSS", "对象存储", "直传", "预签名", "断点续传", "分片", "回调", "验签"],
+    "下单幂等": ["下单", "订单", "重复提交", "连点", "幂等", "去重", "扣两次", "SETNX", "防重"],
+    "消息投递": ["消息", "事件", "Kafka", "MQ", "Outbox", "重试", "死信", "DLQ", "通知", "履约"],
+    "数据一致性": ["事务", "一致性", "原子", "回滚", "唯一索引", "binlog", "CDC", "补偿", "Saga"],
+    "鉴权配额": ["鉴权", "权限", "租户", "配额", "限流", "凭证", "密钥", "KMS", "最小权限"],
+    "性能优化": ["并发", "连接池", "限流", "卡顿", "弱网", "大文件", "Worker", "削峰"]
+  },
+  "sceneExamples": ["做文件上传", "防止重复下单", "上传回调总是失败", "跨服务发通知", "多租户配额控制"]
+}

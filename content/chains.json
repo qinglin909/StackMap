@@ -1,0 +1,54 @@
+{
+  "chains": [
+    {
+      "id": "c.upload",
+      "name": "文件上传主链路",
+      "entryMethodId": "m.fe.useUploadQueue",
+      "nodes": [
+        "m.fe.useUploadQueue",
+        "m.bff.createUploadToken",
+        "m.be.generatePresignedUrl",
+        "m.fe.uploadFile",
+        "m.infra.ossLifecycle",
+        "m.be.verifyUploadCallback",
+        "m.be.publishOrderEvent",
+        "m.infra.mqRetry"
+      ],
+      "edges": [
+        { "from": "m.fe.useUploadQueue", "to": "m.bff.createUploadToken", "relation": "请求凭证" },
+        { "from": "m.bff.createUploadToken", "to": "m.be.generatePresignedUrl", "relation": "换取签名" },
+        { "from": "m.be.generatePresignedUrl", "to": "m.fe.uploadFile", "relation": "返回预签名 URL" },
+        { "from": "m.fe.uploadFile", "to": "m.infra.ossLifecycle", "relation": "写入临时前缀对象" },
+        { "from": "m.infra.ossLifecycle", "to": "m.be.verifyUploadCallback", "relation": "OSS 回调" },
+        { "from": "m.be.verifyUploadCallback", "to": "m.be.publishOrderEvent", "relation": "发布事件" },
+        { "from": "m.be.publishOrderEvent", "to": "m.infra.mqRetry", "relation": "重试/死信" }
+      ],
+      "description": "从选择附件到对象落盘、事件投递的完整链路。跨链路共享节点 publishOrderCreated，改动它同时影响下单链路。"
+    },
+    {
+      "id": "c.order",
+      "name": "下单幂等链路",
+      "entryMethodId": "m.fe.submitOrder",
+      "nodes": [
+        "m.fe.submitOrder",
+        "m.bff.createOrder",
+        "m.be.idempotentGuard",
+        "m.data.redisDedupe",
+        "m.be.createOrder",
+        "m.data.insertOrderTx",
+        "m.be.publishOrderEvent",
+        "m.infra.mqRetry"
+      ],
+      "edges": [
+        { "from": "m.fe.submitOrder", "to": "m.bff.createOrder", "relation": "携带幂等键提交" },
+        { "from": "m.bff.createOrder", "to": "m.be.idempotentGuard", "relation": "价格复核后透传" },
+        { "from": "m.be.idempotentGuard", "to": "m.data.redisDedupe", "relation": "SETNX 原子占位" },
+        { "from": "m.be.idempotentGuard", "to": "m.be.createOrder", "relation": "占位成功后执行" },
+        { "from": "m.be.createOrder", "to": "m.data.insertOrderTx", "relation": "单事务写三表" },
+        { "from": "m.be.createOrder", "to": "m.be.publishOrderEvent", "relation": "Outbox 落库后投递" },
+        { "from": "m.be.publishOrderEvent", "to": "m.infra.mqRetry", "relation": "重试/死信" }
+      ],
+      "description": "覆盖连点拦截、SETNX 去重、单事务落库到事件投递。事故 i.order.duplicate 暴露了第 3 步最初缺失。"
+    }
+  ]
+}

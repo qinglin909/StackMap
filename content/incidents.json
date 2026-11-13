@@ -1,0 +1,36 @@
+{
+  "incidents": [
+    {
+      "id": "i.upload.callback",
+      "title": "附件回调验签公钥轮换事故：订单卡在「待上传」",
+      "symptom": "2026-08-14 14:05 起，约 18% 的订单附件已实际上传到 OSS，但业务侧一直停留在待上传；回调接口验签失败日志每分钟上千条，OSS 侧无回调投递失败记录。",
+      "rootCause": "KMS 公钥轮换时，签发服务已切到新公钥，回调验签服务仍只加载旧公钥且无双写窗口。验签失败后代码直接返回 200 丢弃消息，OSS 认为投递成功不再重投，导致对象已落盘但业务状态永远丢失。",
+      "missingFallbacks": [
+        { "layer": "frontend", "item": "上传 90s 未收到终态时主动查询对象状态", "expected": "m.fe.useUploadQueue 的后端层兜底（事故发生时未实现）" },
+        { "layer": "backend", "item": "双公钥窗口 + 验签失败进重试队列而非丢弃", "expected": "m.be.verifyUploadCallback 的后端层兜底" },
+        { "layer": "data", "item": "objectKey 唯一索引 + INSERT IGNORE 支撑重投幂等", "expected": "m.be.verifyUploadCallback 的数据层兜底" },
+        { "layer": "infra", "item": "主备回调地址 + 清单定时对账补齐", "expected": "m.be.verifyUploadCallback 的基础设施层兜底" },
+        { "layer": "infra", "item": "验签失败率告警阈值", "expected": "监控项 callback_sign_fail_rate 未配置告警" }
+      ],
+      "relatedMethodIds": ["m.be.verifyUploadCallback", "m.fe.useUploadQueue", "m.fe.uploadFile", "m.infra.ossLifecycle", "m.be.publishOrderEvent"],
+      "improvement": "① 验签支持新旧双公钥并保留 24h 窗口；② 验签失败一律进 DLQ，禁止返回 200 丢弃；③ 增加对象清单对账任务与前端主动查询；④ callback_sign_fail_rate > 0.5% 触发 P2 告警；⑤ 公钥轮换加入发布检查单。",
+      "occurredAt": "2026-08-14"
+    },
+    {
+      "id": "i.order.duplicate",
+      "title": "重复提交产生双份订单",
+      "symptom": "2026-06-02 大促首分钟，47 个用户各产生 2 笔金额相同的订单；前端按钮已置灰，但仍有重复请求到达；订单表未报唯一键冲突。",
+      "rootCause": "幂等实现为「先查存在再插入」的非原子 check-then-act，两个并发请求同时查到不存在并双双插入；同时前端刷新页面后重新生成了幂等键，后端无法识别是同一次提交；订单表当时未在 idempotency_key 上建唯一索引。",
+      "missingFallbacks": [
+        { "layer": "frontend", "item": "幂等键与购物车版本绑定，刷新后保持不变", "expected": "m.fe.submitOrder 的前端层兜底" },
+        { "layer": "bff", "item": "透传原始 Idempotency-Key 且缺失即 400", "expected": "m.bff.createOrder 的 BFF 层兜底" },
+        { "layer": "backend", "item": "SETNX 原子占位 + 结果快照", "expected": "m.be.idempotentGuard 的后端层兜底" },
+        { "layer": "data", "item": "idempotency_key 唯一索引", "expected": "m.data.insertOrderTx 的数据层兜底（最关键的缺失）" },
+        { "layer": "infra", "item": "按用户维度限流，抑制 429 触发的反复点击", "expected": "m.fe.submitOrder 的基础设施层兜底" }
+      ],
+      "relatedMethodIds": ["m.fe.submitOrder", "m.bff.createOrder", "m.be.idempotentGuard", "m.data.redisDedupe", "m.be.createOrder", "m.data.insertOrderTx"],
+      "improvement": "① 引入 withIdempotency 两态占位与结果快照；② 订单表补唯一索引并统一映射 409；③ 幂等键改为购物车 id + version 稳定生成；④ 下游增加 duplicate_key_hit_total 告警；⑤ 把「防重必须双层」写入 Code Review 检查单。",
+      "occurredAt": "2026-06-02"
+    }
+  ]
+}

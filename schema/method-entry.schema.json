@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://internal.example/schema/method-entry.schema.json",
+  "title": "MethodEntry",
+  "description": "全栈方法学习 App 的最小知识单元。卡片字段可扩展，核心字段由本 Schema 约束。",
+  "type": "object",
+  "required": ["id", "name", "signature", "layer", "module", "summary", "what", "why", "alternatives", "comparisonConclusion", "fallback", "links", "repoPath", "updatedAt"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+    "name": { "type": "string", "minLength": 1 },
+    "signature": { "type": "string", "minLength": 1 },
+    "layer": { "enum": ["frontend", "bff", "backend", "data", "infra"] },
+    "stack": { "type": "string" },
+    "module": { "type": "string" },
+    "summary": { "type": "string", "minLength": 4 },
+    "what": {
+      "type": "object",
+      "required": ["params", "returns", "sideEffects"],
+      "properties": {
+        "params": { "type": "array", "items": { "type": "object", "required": ["name", "type", "desc"], "properties": { "name": { "type": "string" }, "type": { "type": "string" }, "desc": { "type": "string" } } } },
+        "returns": { "type": "string" },
+        "sideEffects": { "type": "array", "items": { "type": "string" } },
+        "callers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "why": {
+      "type": "object",
+      "required": ["scenarios", "problemsSolved", "preconditions", "counterExample"],
+      "properties": {
+        "scenarios": { "type": "array", "items": { "type": "string" } },
+        "problemsSolved": { "type": "array", "items": { "type": "string" } },
+        "preconditions": { "type": "array", "items": { "type": "string" } },
+        "layerReason": { "type": "string" },
+        "counterExample": {
+          "type": "object",
+          "required": ["title", "desc"],
+          "properties": { "title": { "type": "string" }, "desc": { "type": "string" }, "code": { "type": "string" } }
+        }
+      }
+    },
+    "alternatives": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "layer", "pros", "cons", "whenToUse", "migrationCost", "affectedLayers"],
+        "properties": {
+          "name": { "type": "string" },
+          "layer": { "type": "string" },
+          "pros": { "type": "array", "items": { "type": "string" } },
+          "cons": { "type": "array", "items": { "type": "string" } },
+          "whenToUse": { "type": "string", "minLength": 2 },
+          "migrationCost": { "type": "string" },
+          "affectedLayers": { "type": "array", "items": { "type": "string" } },
+          "codeSnippet": { "type": "string" }
+        }
+      }
+    },
+    "comparisonConclusion": {
+      "type": "string",
+      "minLength": 20,
+      "description": "验收要求：必须包含「什么条件下选哪个」。运行时用 /(当|若|如果|只有在)/ 与 /(则|才|改用|选择|不得)/ 双条件校验。"
+    },
+    "fallback": {
+      "type": "array",
+      "minItems": 2,
+      "description": "验收要求：按 layer 分组，每行必须同时具备 strategy / codeSnippet / monitoring 三要素。",
+      "items": {
+        "type": "object",
+        "required": ["layer", "failureMode", "strategy", "codeSnippet", "monitoring"],
+        "properties": {
+          "layer": { "enum": ["frontend", "bff", "backend", "data", "infra"] },
+          "failureMode": { "type": "string", "minLength": 1 },
+          "strategy": { "type": "string", "minLength": 1 },
+          "codeSnippet": { "type": "string", "minLength": 1 },
+          "monitoring": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "pitfalls": { "type": "array", "items": { "type": "string" } },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "repoPath": { "type": "string", "minLength": 1 },
+    "links": {
+      "type": "object",
+      "required": ["upstream", "downstream"],
+      "properties": {
+        "upstream": { "type": "array", "items": { "type": "string" } },
+        "downstream": { "type": "array", "items": { "type": "string" } },
+        "related": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "items": { "type": "object", "required": ["scene", "code"], "properties": { "scene": { "type": "string" }, "code": { "type": "string" }, "explain": { "type": "string" } } }
+    },
+    "decisionTree": {
+      "type": "object",
+      "description": "卡 4 决策向导配置（二期）。questions[].options[].next 指向下一题 id 或 END；rules[].when 是题目答案的子集匹配。",
+      "properties": {
+        "questions": { "type": "array" },
+        "rules": { "type": "array" },
+        "defaultResult": { "type": "string" },
+        "defaultReason": { "type": "string" }
+      }
+    },
+    "updatedAt": { "type": "string", "format": "date" },
+    "repoUpdatedAt": { "type": "string", "format": "date" },
+    "lastCodeChangeAt": { "type": "string", "format": "date" },
+    "source": { "type": "string", "enum": ["repo", "markdown", "json", "local"] }
+  }
+}

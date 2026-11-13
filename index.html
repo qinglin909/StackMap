@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>栈析 · 全栈方法知识库</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-cards" viewBox="0 0 24 24"><rect x="3" y="4" width="14" height="16" rx="2"/><path d="M7 8h6M7 12h6M7 16h4"/><path d="M19 7h2v13a1 1 0 0 1-1 1h-8"/></symbol>
+    <symbol id="i-chain" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M6.8 7.8 10.5 16M17.2 7.8 13.5 16M7.5 6h9"/></symbol>
+    <symbol id="i-scene" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+    <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14 6a4 4 0 0 0-5 5L3 17v4h4l6-6a4 4 0 0 0 5-5l-3 3-3-3z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2.8 2.8 5.8 6.4.9-4.6 4.5 1.1 6.4-5.7-3-5.7 3 1.1-6.4L2.8 9.5l6.4-.9z"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 9v5m0 3v.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3M20 5v6h-6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 18v2h16v-2"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l5 5v15H6zM14 2v5h5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14 6l4 4"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></symbol>
+  </svg>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><svg><use href="#i-layers"/></svg></div>
+        <div class="brand-text"><strong>栈析</strong><span>全栈方法知识库</span></div>
+      </div>
+
+      <div class="nav-group-label">浏览</div>
+      <nav class="nav" id="navMain">
+        <a class="nav-item" data-action="go" data-route="#/home"><svg><use href="#i-home"/></svg><span>首页 · 分层浏览</span></a>
+        <a class="nav-item" data-action="go" data-route="#/chains"><svg><use href="#i-chain"/></svg><span>链路视图</span></a>
+        <a class="nav-item" data-action="go" data-route="#/scene"><svg><use href="#i-scene"/></svg><span>场景反查</span></a>
+        <a class="nav-item" data-action="go" data-route="#/troubleshoot"><svg><use href="#i-tool"/></svg><span>故障排查</span></a>
+      </nav>
+
+      <div class="nav-group-label">学习</div>
+      <nav class="nav" id="navLearn">
+        <a class="nav-item" data-action="go" data-route="#/cards"><svg><use href="#i-cards"/></svg><span>卡片学习</span><em class="nav-note">8 卡</em></a>
+        <a class="nav-item" data-action="go" data-route="#/favorites"><svg><use href="#i-star"/></svg><span>我的预案</span><em class="nav-note" id="favCount">0</em></a>
+      </nav>
+
+      <div class="nav-group-label">管理</div>
+      <nav class="nav" id="navAdmin">
+        <a class="nav-item" data-action="go" data-route="#/admin"><svg><use href="#i-db"/></svg><span>内容管理</span></a>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="role-box">
+          <label for="roleSelect">当前权限</label>
+          <select id="roleSelect" data-action="role">
+            <option value="readonly">只读用户</option>
+            <option value="editor">编辑者</option>
+            <option value="admin">管理员</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <button class="icon-btn" data-action="theme" title="切换深色模式" aria-label="切换深色模式"><svg><use href="#i-sun"/></svg></button>
+          <button class="icon-btn" data-action="font" data-delta="-0.05" title="缩小字号" aria-label="缩小字号">A−</button>
+          <button class="icon-btn" data-action="font" data-delta="0.05" title="放大字号" aria-label="放大字号">A＋</button>
+          <span class="sync-dot" id="syncDot" title="内容来源">·</span>
+        </div>
+        <div class="side-hint" id="sideHint">内容源加载中…</div>
+      </div>
+    </aside>
+
+    <div class="content">
+      <header class="topbar">
+        <button class="icon-btn back-btn" id="backBtn" data-action="back" title="返回并恢复上下文" aria-label="返回"><svg><use href="#i-back"/></svg></button>
+        <div class="search-wrap">
+          <svg class="search-icon"><use href="#i-search"/></svg>
+          <input id="globalSearch" type="search" placeholder="全局搜索：方法名 / 标签 / 技术栈 / 模块…" autocomplete="off" aria-label="全局搜索">
+          <kbd>/</kbd>
+        </div>
+        <div class="topbar-right">
+          <span class="badge badge-soft" id="modeBadge">加载中</span>
+          <span class="top-sep"></span>
+          <button class="btn btn-sm" data-action="go" data-route="#/favorites"><svg><use href="#i-star"/></svg> 我的预案</button>
+        </div>
+      </header>
+      <main id="main" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toastRoot" aria-live="polite"></div>
+
+  <script src="data.js"></script>
+  <script src="core.js"></script>
+  <script src="cards.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
