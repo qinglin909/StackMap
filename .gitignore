@@ -9,3 +9,14 @@ Thumbs.db
 
 # 个人本地覆盖（内容事实源仍在 content/）
 .local-overrides/
+
+# Android 打包工程（mobile/）：构建产物与生成资源
+mobile/www/
+mobile/android/.gradle/
+mobile/android/**/build/
+mobile/android/local.properties
+mobile/android/app/src/main/assets/public/
+mobile/android/capacitor-cordova-android-plugins/
+*.apk
+*.keystore
+

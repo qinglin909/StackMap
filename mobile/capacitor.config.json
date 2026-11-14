@@ -1,0 +1,11 @@
+{
+  "appId": "cn.qinglin.stackmap",
+  "appName": "StackMap",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
