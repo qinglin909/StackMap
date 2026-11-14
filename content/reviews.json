@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "threads": [
+    {
+      "id": "rv.001",
+      "projectId": "yunshu",
+      "methodId": "m.be.verifyUploadCallback",
+      "title": "回调验签条目建议纳入跨项目同名对比，并补齐与事故 i.upload.callback 的逐层对照",
+      "kind": "review",
+      "status": "changes_requested",
+      "author": "陈昊",
+      "createdAt": "2026-11-10",
+      "updatedAt": "2026-11-14",
+      "comments": [
+        { "id": "c1", "author": "陈昊", "at": "2026-11-10", "body": "这条的『双公钥窗口』经验很值得复用到星链的渠道回调验签，但两边方法名不同（verifyUploadCallback / verifyChannelCallback），跨项目四问对比按 name 匹配会漏掉。建议要么把回调验签收敛成同名能力，要么在评审记录里显式记一笔关联，避免经验断在两个项目之间。", "verdict": "comment" },
+        { "id": "c2", "author": "周岚", "at": "2026-11-12", "body": "同意。另外 fallback 的 infra 层写了主备回调地址，但 i.upload.callback 的 missingFallbacks 里『验签失败率告警阈值』当时是缺的，想确认现在这条是否把量化告警阈值也补进了 monitoring。", "verdict": "request_changes" },
+        { "id": "c3", "author": "陈昊", "at": "2026-11-14", "body": "我核了 methods.json：monitoring 有 callback_sign_fail_rate，但没有写阈值。请在兜底行补『> 0.5% 触发 P2』之类的量化条件，改完 @ 我复审，否则兜底卡只显示指标名、看不到触发条件。", "verdict": "request_changes" }
+      ],
+      "checklist": [
+        { "item": "四问字段齐全（是什么 / 为什么 / 替代方案 / 对比结论）", "done": true },
+        { "item": "对比结论含『当/若』条件句与『则/改用』选择句", "done": true },
+        { "item": "兜底覆盖前端 / 后端 / 数据 / 基础设施并带量化告警阈值", "done": false },
+        { "item": "与事故 i.upload.callback 的逐层缺失一一对应、跨项目同名口径已对齐", "done": false }
+      ],
+      "relatedIncidentIds": ["i.upload.callback"],
+      "relatedDraftId": ""
+    },
+    {
+      "id": "rv.002",
+      "projectId": "xinglian",
+      "methodId": "xl.be.idempotentGuard",
+      "title": "支付幂等守卫评审通过：条件化结论清晰，五层兜底与唯一索引叠加到位",
+      "kind": "review",
+      "status": "approved",
+      "author": "林玥",
+      "createdAt": "2026-11-11",
+      "updatedAt": "2026-11-13",
+      "comments": [
+        { "id": "c1", "author": "林玥", "at": "2026-11-11", "body": "comparisonConclusion 用了『当…时选…；若…则改用…；只有在…条件下才…』的完整条件句，四问对比能直接读出来，符合 build-snapshot 的双正则验收口径。", "verdict": "comment" },
+        { "id": "c2", "author": "周岚", "at": "2026-11-12", "body": "fallback 五层齐全，尤其 data 层把『Redis 不可用时降级到 (merchant_id, out_trade_no) 唯一索引』写清了；与云枢 m.be.idempotentGuard 的 Java + Redis SETNX 版本在 stack、why.layerReason、alternatives 上差异明显，跨项目对比有实质内容，不是只换个项目名。", "verdict": "approve" },
+        { "id": "c3", "author": "陈昊", "at": "2026-11-13", "body": "同意合入。唯一非阻塞建议：把幂等键 TTL 必须与『渠道最大受理超时』对齐的理由在 why.layerReason 里再点一句，避免后来者照抄云枢的 120s 却在慢渠道上提前过期。", "verdict": "approve" }
+      ],
+      "checklist": [
+        { "item": "四问字段齐全且结论含条件句", "done": true },
+        { "item": "兜底覆盖前端 / BFF / 后端 / 数据 / 基础设施不少于两层", "done": true },
+        { "item": "同名方法 withIdempotency 与云枢版本的 stack / 替代 / 兜底明显不同", "done": true },
+        { "item": "links 无自引用与悬空引用", "done": true }
+      ],
+      "relatedIncidentIds": ["i.pay.duplicate_charge"],
+      "relatedDraftId": ""
+    },
+    {
+      "id": "rv.003",
+      "projectId": "xinglian",
+      "methodId": "xl.be.routeChannel",
+      "title": "讨论：渠道路由的熔断阈值与限流层职责边界，是否拆成两个条目",
+      "kind": "discussion",
+      "status": "in_review",
+      "author": "周岚",
+      "createdAt": "2026-11-12",
+      "updatedAt": "2026-11-14",
+      "comments": [
+        { "id": "c1", "author": "周岚", "at": "2026-11-12", "body": "现在 routePayChannel 把『成功率熔断』和『费率 / 限额路由』放在一条里，而 xl.bff.rateLimitPayment 又做了商户维度令牌桶，想讨论会不会职责重叠、是不是该拆成两个条目。", "verdict": "comment" },
+        { "id": "c2", "author": "林玥", "at": "2026-11-13", "body": "我倾向不拆：熔断是路由决策的输入，令牌桶是入口保护，两者 layer 不同（backend / bff），链路卡上也能区分。但需要把『熔断窗口内不重投故障渠道』明确写进 infra 兜底，否则容易和回调重投打架。", "verdict": "comment" },
+        { "id": "c3", "author": "陈昊", "at": "2026-11-14", "body": "赞成不拆，按当前方案继续。补一点：xl.be.publishPayEvent 依赖路由结果，事件体里的 channelCode 必须与路由决策同事务固化，改路由时要同步核对下游事件字段，别出现链路同步漏改。", "verdict": "approve" }
+      ],
+      "checklist": [
+        { "item": "明确 routePayChannel 与 rateLimitPayment 的职责边界", "done": false },
+        { "item": "链路下游 publishPayEvent 的 channelCode 字段同步核对", "done": false },
+        { "item": "对比结论补充熔断场景的条件分支", "done": true }
+      ],
+      "relatedIncidentIds": ["i.pay.duplicate_charge"],
+      "relatedDraftId": ""
+    },
+    {
+      "id": "rv.004",
+      "projectId": "yunshu",
+      "methodId": "m.be.publishOrderEvent",
+      "title": "开放讨论：跨链路事件条目的同步提醒要不要覆盖星链的同名方法",
+      "kind": "discussion",
+      "status": "open",
+      "author": "林玥",
+      "createdAt": "2026-11-13",
+      "updatedAt": "2026-11-14",
+      "comments": [
+        { "id": "c1", "author": "林玥", "at": "2026-11-13", "body": "m.be.publishOrderEvent 同时被 c.upload 和 c.order 两条链路引用，改它要同步两处；三期又引入了星链的 publishOrderCreated 同名方法，想讨论对比视图里要不要也标『跨项目同名』，让改一处能提醒到另一处。", "verdict": "comment" },
+        { "id": "c2", "author": "周岚", "at": "2026-11-14", "body": "按条件化结论的口径核过了，措辞没问题，approve 这个方向。只补一句：『下游 ≥ 2 个』这个条件在多项目下要写清楚是『当前项目内』的下游数，避免读者把两个项目的下游加起来误判。", "verdict": "approve" }
+      ],
+      "checklist": [
+        { "item": "对比结论在多项目语境下无歧义", "done": false },
+        { "item": "跨链路 / 跨项目同名引用在对比视图中可见", "done": false }
+      ],
+      "relatedIncidentIds": ["i.upload.callback"],
+      "relatedDraftId": ""
+    }
+  ]
+}

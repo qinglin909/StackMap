@@ -38,7 +38,7 @@
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark"><svg><use href="#i-layers"/></svg></div>
-        <div class="brand-text"><strong>StackMap <span class="ver-pill">2.0</span></strong><span>全栈方法知识库 · 栈析</span></div>
+        <div class="brand-text"><strong>StackMap <span class="ver-pill">3.0</span></strong><span>全栈方法知识库 · 栈析</span></div>
       </div>
 
       <div class="nav-group-label">浏览</div>
@@ -55,6 +55,13 @@
         <a class="nav-item" data-action="go" data-route="#/cards"><svg><use href="#i-cards"/></svg><span>卡片学习</span><em class="nav-note">8 卡</em></a>
         <a class="nav-item" data-action="go" data-route="#/favorites"><svg><use href="#i-star"/></svg><span>我的预案</span><em class="nav-note" id="favCount">0</em></a>
         <a class="nav-item" data-action="go" data-route="#/progress"><svg><use href="#i-check"/></svg><span>学习进度</span><em class="nav-note">F16</em></a>
+      </nav>
+
+      <div class="nav-group-label">三期 · 协作</div>
+      <nav class="nav" id="navCollab">
+        <a class="nav-item" data-action="go" data-route="#/projects"><svg><use href="#i-layers"/></svg><span>项目空间</span><em class="nav-note">F18</em></a>
+        <a class="nav-item" data-action="go" data-route="#/compare"><svg><use href="#i-chain"/></svg><span>跨项目对比</span><em class="nav-note">F18</em></a>
+        <a class="nav-item" data-action="go" data-route="#/reviews"><svg><use href="#i-file"/></svg><span>团队评审</span><em class="nav-note">F20</em></a>
       </nav>
 
       <div class="nav-group-label">管理</div>
@@ -92,6 +99,10 @@
           <kbd>/</kbd>
         </div>
         <div class="topbar-right">
+          <label class="proj-switch-wrap" title="切换项目数据域"><svg class="switch-icon"><use href="#i-layers"/></svg>
+            <select id="projectSwitch" class="proj-switch" data-action="projectSwitch" aria-label="切换项目"></select>
+          </label>
+          <span class="top-sep"></span>
           <span class="badge badge-soft" id="modeBadge">加载中</span>
           <span class="top-sep"></span>
           <button class="btn btn-sm" data-action="go" data-route="#/favorites"><svg><use href="#i-star"/></svg> 我的预案</button>
@@ -107,8 +118,10 @@
   <script src="data.js"></script>
   <script src="core.js"></script>
   <script src="v2.js"></script>
+  <script src="v3.js"></script>
   <script src="cards.js"></script>
   <script src="views2.js"></script>
+  <script src="views3.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

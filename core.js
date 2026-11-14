@@ -1,7 +1,7 @@
 /* StackMap · core.js
  * 状态、仓库加载、校验、Markdown/JSON 导入解析、路由、收藏、通用 UI 能力。
- * 事实源是 content/*.json；data.js 只是 file:// 打开时的离线快照。
- * 2.0 的新增能力在 v2.js（逻辑）与 views2.js（页面），本文件只保留核心层。
+ * 3.0 起事实源是 content/projects.json 注册的**多个项目**，每个项目 contentBase 下四类 JSON；
+ * data.js 只是 file:// 打开时的离线快照。2.0 能力在 v2.js/views2.js，3.0 在 v3.js/views3.js。
  */
 (function () {
   'use strict';
@@ -27,12 +27,14 @@
     const t = Date.parse(d || KB.today());
     return isNaN(t) ? 0 : Math.max(0, Math.floor((Date.now() - t) / 86400000));
   };
-  KB.repoPath = (m) => {
-    const p = (m && m.repoPath) || '';
-    if (KB.state.role !== 'readonly') return p;
-    const parts = p.split('/');
+  // 只读分享脱敏：3.0 起所有路径出口（显示 / 复制 / 深链 / 搜索索引）统一走这里，避免旁路
+  KB.maskPath = (p) => {
+    const s = String(p || '');
+    if (KB.state.role !== 'readonly') return s;
+    const parts = s.split('/');
     return parts.length > 2 ? parts[0] + '/***/' + parts[parts.length - 1].replace(/^.{3,}/, '***') : '***/***';
   };
+  KB.repoPath = (m) => KB.maskPath(m && m.repoPath);
   KB.codeBlock = (code, label) => `<div class="code-block"><pre><code>${KB.esc(code || '')}</code></pre><button class="icon-btn copy-btn" data-action="copy" title="复制代码" aria-label="复制代码">${KB.icon('copy')}</button></div>${label ? `<div class="tiny dim mt8">${KB.esc(label)}</div>` : ''}`;
   KB.list = (arr, cls) => `<ul${cls ? ` class="${cls}"` : ''}>${(arr || []).map((x) => `<li>${KB.esc(x)}</li>`).join('')}</ul>`;
 
@@ -44,7 +46,19 @@
   KB.ls = ls;
 
   KB.state = {
-    repo: { methods: [], chains: [], incidents: [], troubleshooting: { flows: [], sceneSynonyms: {}, sceneExamples: [] } },
+    repo: {
+      methods: [], chains: [], incidents: [],
+      troubleshooting: { flows: [], sceneSynonyms: {}, sceneExamples: [] },
+      projects: [], reviews: [], linksSkeleton: null
+    },
+    projects: [],
+    projectId: ls.get('projectId', null),
+    defaultProjectId: 'yunshu',
+    reviews: [],
+    compareConcept: '',
+    compareA: '',
+    compareB: '',
+    reviewSelect: '',
     mode: 'loading',
     generatedAt: '',
     overlays: ls.get('overlays', {}),
@@ -73,44 +87,79 @@
   KB.isAdmin = () => KB.state.role === 'admin';
 
   // ---------- 仓库加载 ----------
-  const FILES = {
-    methods: 'content/methods.json',
-    chains: 'content/chains.json',
-    incidents: 'content/incidents.json',
-    troubleshooting: 'content/troubleshooting.json'
+  // 3.0：内容按项目分目录存放，content/projects.json 是项目注册表。
+  // 没有注册表时自动退回 1.0/2.0 的单项目布局，保证旧仓库可直接升级。
+  const FILE_NAMES = {
+    methods: 'methods.json', chains: 'chains.json',
+    incidents: 'incidents.json', troubleshooting: 'troubleshooting.json'
   };
+  const REGISTRY_PATH = 'content/projects.json';
+  const REVIEWS_PATH = 'content/reviews.json';
   const SKELETON_PATH = 'content/generated/links.skeleton.json';
+  const LEGACY_PROJECT = {
+    id: 'yunshu', name: '云枢 · 订单与附件平台', short: '云枢', description: '',
+    stack: '', contentBase: 'content', color: '#4f6bed', status: 'active', owner: ''
+  };
+  async function getJson(p, optional) {
+    const r = await fetch(p, { cache: 'no-store' });
+    if (!r.ok) {
+      if (optional) return null;
+      throw new Error(p + ' -> ' + r.status);
+    }
+    return r.json();
+  }
+  const withProject = (arr, pid) => (arr || []).map((x) => Object.assign({}, x, { projectId: x.projectId || pid }));
   async function fromRepo() {
-    const out = {};
-    await Promise.all(Object.entries(FILES).map(async ([k, p]) => {
-      const r = await fetch(p, { cache: 'no-store' });
-      if (!r.ok) throw new Error(p + ' -> ' + r.status);
-      out[k] = await r.json();
+    let registry = null;
+    try { registry = await getJson(REGISTRY_PATH, true); } catch (e) { /* 旧版单项目布局 */ }
+    const projects = (registry && registry.projects && registry.projects.length) ? registry.projects : [LEGACY_PROJECT];
+    const merged = { methods: [], chains: [], incidents: [], flows: [], sceneSynonyms: {}, sceneExamples: [] };
+    await Promise.all(projects.map(async (p) => {
+      const base = String(p.contentBase || 'content').replace(/\/+$/, '');
+      const docs = {};
+      await Promise.all(Object.keys(FILE_NAMES).map(async (k) => {
+        docs[k] = await getJson(base + '/' + FILE_NAMES[k], k === 'troubleshooting');
+      }));
+      merged.methods.push(...withProject((docs.methods || {}).entries, p.id));
+      merged.chains.push(...withProject((docs.chains || {}).chains, p.id));
+      merged.incidents.push(...withProject((docs.incidents || {}).incidents, p.id));
+      const tr = docs.troubleshooting || {};
+      merged.flows.push(...withProject(tr.flows, p.id));
+      Object.entries(tr.sceneSynonyms || {}).forEach(([k, words]) => {
+        const prev = merged.sceneSynonyms[k] || [];
+        merged.sceneSynonyms[k] = Array.from(new Set(prev.concat(Array.isArray(words) ? words : [words])));
+      });
+      merged.sceneExamples.push(...(tr.sceneExamples || []));
     }));
-    // F15 抽取骨架是可选生成物：缺失时不影响主内容加载
-    let skeleton = null;
-    try {
-      const r = await fetch(SKELETON_PATH, { cache: 'no-store' });
-      if (r.ok) skeleton = await r.json();
-    } catch (e) { /* 离线或未运行抽取脚本 */ }
+    let skeleton = null, reviews = [];
+    try { skeleton = await getJson(SKELETON_PATH, true); } catch (e) { /* 未运行抽取脚本 */ }
+    try { const rv = await getJson(REVIEWS_PATH, true); reviews = (rv && rv.threads) || []; } catch (e) { /* 无评审数据 */ }
     return {
-      methods: out.methods.entries || [],
-      chains: out.chains.chains || [],
-      incidents: out.incidents.incidents || [],
-      troubleshooting: out.troubleshooting,
+      methods: merged.methods,
+      chains: merged.chains,
+      incidents: merged.incidents,
+      troubleshooting: { flows: merged.flows, sceneSynonyms: merged.sceneSynonyms, sceneExamples: merged.sceneExamples },
+      projects,
+      defaultProjectId: (registry && registry.defaultProjectId) || projects[0].id,
+      reviews,
       linksSkeleton: skeleton,
-      project: out.methods.project,
+      project: projects[0].name,
       generatedAt: new Date().toISOString()
     };
   }
   function fromSnapshot() {
     const s = window.__REPO_SNAPSHOT__;
     if (!s) throw new Error('离线快照 data.js 未加载');
+    const projects = (s.projects && s.projects.length) ? s.projects : [Object.assign({}, LEGACY_PROJECT, { name: s.project || LEGACY_PROJECT.name })];
     return {
       methods: s.methods || [], chains: s.chains || [], incidents: s.incidents || [],
       troubleshooting: s.troubleshooting || { flows: [], sceneSynonyms: {}, sceneExamples: [] },
       linksSkeleton: s.linksSkeleton || null,
-      project: s.project, generatedAt: s.generatedAt
+      projects,
+      defaultProjectId: s.defaultProjectId || projects[0].id,
+      reviews: s.reviews || [],
+      project: projects[0].name,
+      generatedAt: s.generatedAt
     };
   }
   KB.loadRepo = async function (force) {
@@ -122,25 +171,48 @@
       data = fromSnapshot(); mode = 'snapshot';
     }
     KB.state.repo = data;
+    KB.state.projects = data.projects || [];
+    KB.state.defaultProjectId = data.defaultProjectId || (KB.state.projects[0] || {}).id || 'yunshu';
+    if (!KB.state.projects.some((p) => p.id === KB.state.projectId)) {
+      KB.state.projectId = KB.state.defaultProjectId;
+      ls.set('projectId', KB.state.projectId);
+    }
+    KB.state.reviews = data.reviews || [];
     KB.state.mode = mode;
     KB.state.generatedAt = data.generatedAt;
-    KB.state.project = data.project || '云枢 · 订单与附件平台';
-    if (force) KB.toast(mode === 'repo' ? '已重新读取 content/ 仓库内容' : '当前为离线快照模式（用本地 HTTP 服务启动可启用仓库同源）', mode === 'repo' ? 'ok' : '');
+    KB.state.project = (KB.state.projects.find((p) => p.id === KB.state.projectId) || {}).name || data.project || LEGACY_PROJECT.name;
+    if (force) KB.toast(mode === 'repo' ? `已重新读取 ${KB.state.projects.length} 个项目的 content/ 内容` : '当前为离线快照模式（用本地 HTTP 服务启动可启用仓库同源）', mode === 'repo' ? 'ok' : '');
     return mode;
   };
 
   // ---------- 数据访问 ----------
-  KB.methods = function () {
+  const pidOf = (x) => (x && x.projectId) || KB.state.defaultProjectId || 'yunshu';
+  KB.projectIdOf = pidOf;
+  // 全量（跨项目）：引用校验、按 id/按名解析、跨项目对比用
+  KB.allMethods = function () {
     const map = new Map();
     KB.state.repo.methods.forEach((m) => map.set(m.id, Object.assign({}, m, { source: 'repo' })));
     Object.values(KB.state.overlays).forEach((m) => map.set(m.id, Object.assign({}, m, { source: m.source || 'local' })));
     KB.state.deleted.forEach((id) => map.delete(id));
     return Array.from(map.values()).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   };
-  KB.byId = (id) => KB.methods().find((m) => m.id === id) || null;
-  KB.chains = () => KB.state.repo.chains;
-  KB.incidents = () => KB.state.repo.incidents;
-  KB.flows = () => (KB.state.repo.troubleshooting.flows || []);
+  // 当前项目视图：首页 / 搜索 / 链路 / 卡片 / 场景反查默认只看当前项目
+  KB.methods = function (projectId) {
+    const scope = arguments.length ? projectId : KB.state.projectId;
+    const all = KB.allMethods();
+    if (!scope || scope === '*' || KB.state.projects.length <= 1) return all;
+    return all.filter((m) => pidOf(m) === scope);
+  };
+  KB.byId = (id) => KB.allMethods().find((m) => m.id === id) || null;
+  const scope = (arr, projectId) => {
+    const s = projectId === undefined ? KB.state.projectId : projectId;
+    if (!s || s === '*' || KB.state.projects.length <= 1) return arr;
+    return arr.filter((x) => pidOf(x) === s);
+  };
+  KB.chains = (projectId) => scope(KB.state.repo.chains || [], projectId);
+  KB.incidents = (projectId) => scope(KB.state.repo.incidents || [], projectId);
+  KB.flows = (projectId) => scope(KB.state.repo.troubleshooting.flows || [], projectId);
+  // 同义词与场景示例是全项目共享的检索词表，不按项目过滤
   KB.synonyms = () => (KB.state.repo.troubleshooting.sceneSynonyms || {});
   KB.sceneExamples = () => (KB.state.repo.troubleshooting.sceneExamples || []);
   KB.chainsOf = (id) => KB.chains().filter((c) => c.nodes.indexOf(id) >= 0);
@@ -192,7 +264,7 @@
       });
     });
     if (!m.fallback || m.fallback.length < 2 || layers.size < 2) errs.push(`${tag} 兜底必须按层分组（至少 2 层、2 行）`);
-    const ids = new Set(KB.methods().map((x) => x.id));
+    const ids = new Set(KB.allMethods().map((x) => x.id));
     ['upstream', 'downstream', 'related'].forEach((k) => ((m.links || {})[k] || []).forEach((r) => {
       if (!ids.has(r)) warns.push(`${tag} links.${k} 引用了不存在的条目 ${r}`);
     }));
@@ -203,7 +275,7 @@
     KB.methods().forEach((m) => {
       const r = KB.validateEntry(m); errors.push(...r.errors); warnings.push(...r.warnings);
     });
-    const ids = new Set(KB.methods().map((m) => m.id));
+    const ids = new Set(KB.allMethods().map((m) => m.id));
     KB.chains().forEach((c) => {
       c.nodes.forEach((n) => { if (!ids.has(n)) errors.push(`链路 ${c.id} 节点 ${n} 不存在`); });
       c.edges.forEach((e) => {
@@ -542,7 +614,7 @@
       if (s.layers.length && s.layers.indexOf(m.layer) < 0) return false;
       if (s.tags.length && !s.tags.every((t) => (m.tags || []).indexOf(t) >= 0)) return false;
       if (!q) return true;
-      const hay = [m.name, m.signature, m.summary, m.module, m.stack, m.repoPath, (m.tags || []).join(' '), (m.pitfalls || []).join(' ')].join(' ').toLowerCase();
+      const hay = [m.name, m.signature, m.summary, m.module, m.stack, KB.repoPath(m), (m.tags || []).join(' '), (m.pitfalls || []).join(' ')].join(' ').toLowerCase();
       return q.split(/\s+/).every((w) => hay.indexOf(w) >= 0);
     });
   };
@@ -580,7 +652,8 @@
   const NAV_KEY = {
     home: 'home', entry: 'home', scene: 'scene', troubleshoot: 'troubleshoot',
     chains: 'chains', chain: 'chains', cards: 'cards', favorites: 'favorites', admin: 'admin',
-    incidents: 'incidents', incident: 'incidents', drafts: 'drafts', progress: 'progress', impact: 'impact'
+    incidents: 'incidents', incident: 'incidents', drafts: 'drafts', progress: 'progress', impact: 'impact',
+    projects: 'projects', compare: 'compare', reviews: 'reviews'
   };
   KB.renderShell = function () {
     const key = NAV_KEY[KB.state.route.name] || 'home';
@@ -591,6 +664,16 @@
     const back = document.getElementById('backBtn');
     if (back) back.classList.toggle('show', KB.state.context.length > 0);
     const fc = document.getElementById('favCount'); if (fc) fc.textContent = KB.state.favorites.length;
+    const ps = document.getElementById('projectSwitch');
+    if (ps) {
+      const sig = KB.state.projects.map((p) => p.id + ':' + (p.short || p.name)).join('|');
+      if (ps.dataset.sig !== sig) {
+        ps.dataset.sig = sig;
+        ps.innerHTML = KB.state.projects.map((p) => `<option value="${KB.esc(p.id)}">${KB.esc(p.short || p.name)}</option>`).join('');
+      }
+      if (ps.value !== KB.state.projectId) ps.value = KB.state.projectId;
+      ps.title = '当前项目：' + KB.state.project;
+    }
     const badge = document.getElementById('modeBadge');
     if (badge) {
       badge.textContent = KB.state.mode === 'repo' ? '仓库同源 · content/' : '离线快照 · data.js';
@@ -598,7 +681,7 @@
     }
     const hint = document.getElementById('sideHint');
     if (hint) hint.textContent = KB.state.mode === 'repo'
-      ? `已读取 content/*.json（${KB.state.repo.methods.length} 条目）。修改仓库文件后点「重新同步」。`
+      ? `已读取 ${KB.state.projects.length} 个项目（当前 ${KB.state.project} ${KB.methods().length} 条目）。修改仓库文件后点「重新同步」。`
       : '直接打开文件使用离线快照；用本地 HTTP 服务启动即为仓库同源模式。';
     const dot = document.getElementById('syncDot');
     if (dot) dot.style.background = KB.state.mode === 'repo' ? 'var(--green)' : 'var(--amber)';

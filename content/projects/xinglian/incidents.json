@@ -1,0 +1,38 @@
+{
+  "incidents": [
+    {
+      "id": "i.pay.callback_sign",
+      "title": "渠道回调验签密钥轮换事故：用户已扣款但订单卡在「待支付」",
+      "symptom": "2026-09-03 14:20 起，部分微信渠道交易用户已被扣款，商户订单却一直停留在待支付；渠道侧通知投递成功率正常，但业务回调验签失败日志每分钟上千条，商户集中投诉「付了钱没到账」，部分用户因误判未支付而重复付款。",
+      "rootCause": "渠道平台轮换 RSA 公钥时，渠道侧已切到新公钥，回调验签服务仍只加载旧公钥且无双密钥窗口。验签失败后处理器直接返回 HTTP 200 让渠道认为已送达、不再重投，支付终态永久丢失；同时 (channel_code, channel_trade_no) 未建唯一索引，同一通知重投也无法幂等收敛；日终对账当时尚未接入该渠道，缺最后一道补齐。",
+      "missingFallbacks": [
+        { "layer": "frontend", "item": "结果页 60s 未收到终态时主动查渠道支付状态", "expected": "xl.fe.pollPayResult 的前端层兜底（事故发生时未实现）" },
+        { "layer": "bff", "item": "回调入口保留原始 body 字节与渠道标识，验签前不做结构化改写", "expected": "xl.be.verifyCallback 的接入层兜底（网关曾重排 JSON 字段）" },
+        { "layer": "backend", "item": "新旧双密钥窗口 + 验签失败进重试队列而非返回 200 丢弃", "expected": "xl.be.verifyCallback 的后端层兜底（最关键的缺失）" },
+        { "layer": "data", "item": "(channel_code, channel_trade_no) 唯一索引 + INSERT IGNORE 支撑回调重投幂等", "expected": "xl.be.idempotentGuard 的数据层兜底" },
+        { "layer": "infra", "item": "按渠道隔离的回调 DLQ + 日终对账补齐 + callback_sign_fail_rate 阈值告警", "expected": "xl.infra.channelRetry 的基础设施层兜底" }
+      ],
+      "relatedMethodIds": ["xl.be.verifyCallback", "xl.be.idempotentGuard", "xl.infra.channelRetry", "xl.fe.pollPayResult", "xl.data.reconcile", "xl.be.publishPayEvent"],
+      "improvement": "① 验签支持新旧双密钥并保留 24h 轮换窗口；② 验签失败一律进按渠道隔离的 DLQ，禁止返回 200 丢弃；③ 回调记录补 (channel_code, channel_trade_no) 唯一索引与终态单向流转；④ 结果页 60s 主动查渠道 + 渠道账单日终对账自动补单；⑤ callback_sign_fail_rate > 0.3% 触发 P1 告警；⑥ 密钥轮换与双写窗口纳入发布检查单。",
+      "occurredAt": "2026-09-03",
+      "projectId": "xinglian"
+    },
+    {
+      "id": "i.pay.duplicate_charge",
+      "title": "渠道路由未熔断叠加幂等键被改写造成重复扣款",
+      "symptom": "2026-05-21 大促首分钟，某渠道网关超时率飙到 40%，路由仍持续把流量打到该渠道；用户超时后刷新收银台重新提交，31 笔交易产生两笔渠道成功扣款，渠道流水号不同但商户订单号相同，订单表未报唯一键冲突。",
+      "rootCause": "渠道路由缺少基于成功率的熔断与渠道级幂等约束，故障渠道仍被持续选中；刷新收银台后前端用随机 UUID 重新生成幂等键，BFF 未把服务端签发的商户订单号作为稳定键透传；支付单表当时未在 (merchant_id, out_trade_no) 上建唯一索引，两个执行体并发都发起了渠道下单。",
+      "missingFallbacks": [
+        { "layer": "frontend", "item": "幂等键与商户订单号绑定，刷新后保持不变", "expected": "xl.fe.submitPayment 的前端层兜底" },
+        { "layer": "bff", "item": "透传原始幂等键与服务端签发的商户订单号，缺失即拒绝，禁止前端重写", "expected": "xl.bff.createPayIntent 的 BFF 层兜底" },
+        { "layer": "backend", "item": "按商户订单号 Lua 原子占位 + 渠道流水号结果快照", "expected": "xl.be.idempotentGuard 的后端层兜底" },
+        { "layer": "data", "item": "(merchant_id, out_trade_no) 唯一索引", "expected": "xl.be.createPayOrder 的数据层兜底（最关键的缺失）" },
+        { "layer": "infra", "item": "渠道成功率熔断 + 按商户维度限流，抑制超时后的反复提交", "expected": "xl.be.routeChannel 的基础设施层兜底" }
+      ],
+      "relatedMethodIds": ["xl.fe.submitPayment", "xl.bff.createPayIntent", "xl.be.idempotentGuard", "xl.be.createPayOrder", "xl.be.routeChannel", "xl.bff.rateLimitPayment"],
+      "improvement": "① 幂等键改为 merchantId:outTradeNo 稳定生成，BFF 禁止改写；② 支付单表补 (merchant_id, out_trade_no) 唯一索引并统一映射 409 + 首次支付单号；③ 路由增加成功率滑动窗口与熔断半开探测，熔断窗口内不重投故障渠道；④ 引入 withIdempotency 两态占位与渠道流水号结果快照；⑤ 把「资金链路防重必须前端/BFF/后端/数据四层」写入 Code Review 检查单。",
+      "occurredAt": "2026-05-21",
+      "projectId": "xinglian"
+    }
+  ]
+}

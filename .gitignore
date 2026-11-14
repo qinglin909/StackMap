@@ -1,7 +1,8 @@
 # 本地运行产物
 node_modules/
-.chrome-tmp*/
+.chrome-*/
 .preview-*.png
+impact.md
 *.log
 .DS_Store
 Thumbs.db

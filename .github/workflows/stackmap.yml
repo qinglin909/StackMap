@@ -1,0 +1,94 @@
+# F19 · PR 变更影响自动提醒工作流
+# 端到端链路：PR 改动 → tools/pr-impact.mjs 映射 → job summary + PR comment
+#             → 人工按检查单复核 → 回写 content/
+# 边界：脚本只生成建议，绝不自动修改 content/ 事实源；不引用任何第三方 action。
+
+name: StackMap PR Impact
+
+on:
+  pull_request:
+    paths:
+      - 'content/**'
+      - 'samples/**'
+      - '*.js'
+      - '*.css'
+      - '*.html'
+      - 'tools/**'
+      - 'schema/**'
+      - 'package.json'
+  # 便于手动触发重跑，无需新开 PR。
+  workflow_dispatch:
+
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      # 拉取完整历史，否则 origin/<base_ref> 不存在，git diff 会失败。
+      - name: 检出代码（fetch-depth: 0 以拿到 base 分支）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 现有质量门禁：快照构建 + 冒烟测试 + 链接抽取检查。
+      - name: 运行 npm run verify
+        run: npm run verify
+
+      # 生成 Markdown 检查单；git 不可用或 ref 无效时脚本会优雅降级为「未命中」报告。
+      - name: 生成 PR 变更影响检查单
+        run: node tools/pr-impact.mjs --base "origin/${{ github.base_ref }}" --head HEAD --out impact.md
+
+      # 把检查单追加到 job summary，PR 页面直接可见。
+      - name: 写入 job summary
+        run: cat impact.md >> "$GITHUB_STEP_SUMMARY"
+
+      # 漂移检测：源码已改但 content/ 未同步时额外加一条 notice 注释；
+      # 内容文件与源码同 PR 更新（或未命中条目）时不提示。
+      - name: 内容漂移 notice
+        run: |
+          if grep -q '源码已改但知识库条目未同步' impact.md; then
+            echo '::notice::检测到内容漂移：源码已改但知识库条目未同步，请在本 PR 同步更新 content/'
+            {
+              echo ''
+              echo '> ⚠ 内容漂移：源码已改但知识库条目未同步，请在本 PR 同步更新 content/ 后再合并。'
+              echo ''
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '内容文件与源码同 PR 更新，或本次改动未命中条目：不提示漂移。'
+          fi
+
+      # 仅同源分支 PR 发 comment：fork PR 的 GITHUB_TOKEN 无写权限。
+      # 先用 gh api 按标记查找已有评论，命中则 PATCH 更新，否则 POST 新建。
+      - name: 创建或更新带标记的 PR comment
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          MARKER='<!-- stackmap-impact -->'
+          PAYLOAD=$(MARKER="$MARKER" node -e 'const fs=require("fs"); const m=process.env.MARKER; process.stdout.write(JSON.stringify({body:m+"\n\n"+fs.readFileSync("impact.md","utf8")}))')
+          EXISTING=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
+            --jq '[.[] | select(.body | contains("<!-- stackmap-impact -->")) | .id] | first // ""')
+          if [ -n "$EXISTING" ]; then
+            gh api --method PATCH "repos/${REPO}/issues/comments/${EXISTING}" --input - <<< "$PAYLOAD"
+            echo "已更新已有 PR comment（id=${EXISTING}）"
+          else
+            gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" --input - <<< "$PAYLOAD"
+            echo "已新建 PR comment"
+          fi
+
+      # fork PR 保护：只写 job summary 并打印说明，避免 token 权限失败导致 job 失败。
+      - name: fork PR 说明（跳过 comment）
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo '来自 fork 的 PR：GITHUB_TOKEN 无写评论权限，已跳过 PR comment，检查单仅写入 job summary。' >> "$GITHUB_STEP_SUMMARY"
+          echo '::notice::来自 fork 的 PR，跳过 PR comment，检查单仅写入 job summary'

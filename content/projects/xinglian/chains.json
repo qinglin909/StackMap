@@ -1,0 +1,55 @@
+{
+  "chains": [
+    {
+      "id": "c.pay.submit",
+      "name": "支付下单主链路",
+      "projectId": "xinglian",
+      "entryMethodId": "xl.fe.submitPayment",
+      "nodes": [
+        "xl.fe.submitPayment",
+        "xl.bff.createPayIntent",
+        "xl.bff.rateLimitPayment",
+        "xl.be.idempotentGuard",
+        "xl.be.createPayOrder",
+        "xl.be.routeChannel",
+        "xl.be.publishPayEvent",
+        "xl.infra.channelRetry"
+      ],
+      "edges": [
+        { "from": "xl.fe.submitPayment", "to": "xl.bff.createPayIntent", "relation": "携带商户订单号与稳定幂等键提交" },
+        { "from": "xl.bff.createPayIntent", "to": "xl.bff.rateLimitPayment", "relation": "预下单前按商户维度限流" },
+        { "from": "xl.bff.rateLimitPayment", "to": "xl.be.idempotentGuard", "relation": "限流放行后透传幂等键" },
+        { "from": "xl.be.idempotentGuard", "to": "xl.be.createPayOrder", "relation": "Lua 占位成功后创建支付单" },
+        { "from": "xl.be.createPayOrder", "to": "xl.be.routeChannel", "relation": "按支付单固化渠道决策" },
+        { "from": "xl.be.routeChannel", "to": "xl.be.publishPayEvent", "relation": "渠道受理后发 PaymentAccepted" },
+        { "from": "xl.be.publishPayEvent", "to": "xl.infra.channelRetry", "relation": "投递失败进入退避重投/死信" }
+      ],
+      "description": "从收银台提交、收单聚合、限流、幂等占位、支付单落库、渠道路由到受理事件投递的完整链路。跨链路共享 publishOrderCreated 节点，改动它同时影响日终对账链路。"
+    },
+    {
+      "id": "c.pay.recon",
+      "name": "日终对账与差错处理链路",
+      "projectId": "xinglian",
+      "entryMethodId": "xl.data.reconcile",
+      "nodes": [
+        "xl.data.reconcile",
+        "xl.be.verifyCallback",
+        "xl.be.createPayOrder",
+        "xl.be.publishPayEvent",
+        "xl.be.resolveDiff",
+        "xl.infra.channelRetry",
+        "xl.fe.pollPayResult"
+      ],
+      "edges": [
+        { "from": "xl.data.reconcile", "to": "xl.be.verifyCallback", "relation": "对账核对渠道回调流水" },
+        { "from": "xl.data.reconcile", "to": "xl.be.createPayOrder", "relation": "短款按本地支付单定位" },
+        { "from": "xl.data.reconcile", "to": "xl.be.resolveDiff", "relation": "差异生成差错工单" },
+        { "from": "xl.be.resolveDiff", "to": "xl.be.publishPayEvent", "relation": "处置结果发差错完成事件" },
+        { "from": "xl.be.publishPayEvent", "to": "xl.infra.channelRetry", "relation": "补发商户通知重投" },
+        { "from": "xl.be.verifyCallback", "to": "xl.fe.pollPayResult", "relation": "终态回写供结果页查询" },
+        { "from": "xl.be.resolveDiff", "to": "xl.fe.pollPayResult", "relation": "差错处理完成后更新查询结果" }
+      ],
+      "description": "T+1 渠道账单与本地流水逐笔核对，差异转差错处理并补发商户通知。事故 i.pay.callback_sign 暴露了回调验签失败被丢弃时对账补齐缺位的问题。"
+    }
+  ]
+}

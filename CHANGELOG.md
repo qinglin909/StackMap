@@ -4,6 +4,41 @@
 
 ---
 
+## [v3.0.0] — 2026-11-14 · 第三期完成
+
+### 新增：F18 多项目复用与跨项目对比
+
+- **内容层多项目化**：新增 `content/projects.json` 注册表，每个项目用 `contentBase` 指向独立的 `methods/chains/incidents/troubleshooting` 四类 JSON。新增第二个示例项目「星链 · 支付清算平台」（12 条目 / 2 链路 / 2 事故 / 3 排查流，五层齐全），与云枢共享 5 个同名概念。
+- `core.js` 升级为按项目聚合加载，`KB.methods()/chains()/incidents()/flows()` 默认按当前项目过滤，`KB.allMethods()` / `KB.byId()` 保持全量解析（跨项目深链不断）；同义词与场景示例跨项目合并。
+- 顶栏新增项目切换器，切换即重置筛选与临时状态并刷新全局数据域；`data.js` 离线快照同步打包 `projects / defaultProjectId / reviews`。
+- 新增 `#/projects` 项目空间：项目卡片、五层覆盖度、10 维度对比矩阵、独有 / 共享方法、备份提醒、CI 命令清单；新增 `#/compare` 跨项目对比：13 字段并排、差异高亮、只看差异、导出 Markdown。
+- 构建脚本新增：项目注册校验、id 全局唯一、projectId 归属、同名概念统计；无注册表时自动退回 1.0/2.0 单项目布局。
+
+### 新增：F19 PR 变更影响自动提醒
+
+- `tools/pr-impact.mjs`：git diff → 按 `repoPath` 精确/后缀/前缀匹配 → 波及链路、下游节点、关联事故与排查流 → 中文 PR 复核检查单 + 结构化 JSON；**内容漂移检测**（源码改了但 `content/` 未同步）；git 不可用或无命中优雅降级。
+- `.github/workflows/stackmap.yml`：`pull_request` / 手动触发 → `npm run verify` → 影响清单写入 job summary 与带 `<!-- stackmap-impact -->` 标记的 PR comment（已存在则更新）；漂移时发 notice；fork PR 只写 summary。仅用两个官方 action 与内置 `GITHUB_TOKEN`。
+- App 侧新增同结构的本地检查单导出（`KB.prChecklistMarkdown`）与项目空间的 CI 命令清单，人工分析与 CI 报告可互相印证。
+
+### 新增：F20 团队评论与评审条目
+
+- `content/reviews.json` 数据契约（4 条示例，覆盖 4 种状态与两类 kind）+ `#/reviews` 评审工作台：筛选、检查单勾选、状态流转、评论时间线、通过 / 要求修改表决（同步更新状态）、按方法反查、导出 Markdown。
+- 新建 / 评论 / 表决 / 删除 / 检查单均按角色门控，写入 localStorage 覆盖层并标记待回写；条目详情页新增「评审」入口。
+- 构建校验评审数据：projectId / methodId / status / kind / comments / verdict / checklist / relatedIncidentIds 全部校验。
+
+### 修复与性能
+
+- **只读脱敏旁路**：新增 `KB.maskPath()` 统一处理显示、复制按钮、IDE 深链 `ref`、搜索索引与来源条；`KB.deepLink` 增加防御性脱敏；修复只读用户可复制完整内部路径的问题（新增回归断言）。
+- **200 节点链路**：`cards.js` 在 >60 节点时自动启用轻量渲染（缩小节点、收紧行距、省略关系标签与次要文字）；新增 `tools/chain-bench.html` 用无头 Chrome 实测 8/60/120/200 节点，200 节点 **13.7ms / 1023 DOM 元素 / 86.5KB HTML**（阈值 1000ms）。
+- **数据定期备份**：7 天周期到期提醒（首页 + 项目空间），导出全量 JSON 后自动记录时间；内容管理页的单项目备份也纳入计时。
+
+### 工程
+
+- 新增 `v3.js`（逻辑）/ `views3.js`（页面），沿用 2.0 的事件总线委托模式；`README.md` 全面更新，`package.json` 升到 3.0.0 并新增 `impact` / `impact:self-test` 脚本。
+- `smoke-test.mjs`：页面渲染 25 → **32 个**，新增多项目切换、跨项目对比、评审校验与表决、只读脱敏无旁路、200 节点轻量渲染、备份提醒等断言。
+
+---
+
 ## [v2.0.0] — 2026-11-13 · 第二期完成
 
 ### 新增：二期 F9–F17 全部能力
@@ -51,4 +86,4 @@
 
 ## 已知边界
 
-无后端服务：收藏 / 编辑 / 事故 / 草稿 / 进度 / 角色均为浏览器本地状态；pgvector 与 LLM 为可选接入；Tree-sitter 为可选依赖；F18 多项目、F20 团队评论未实现。详见 `README.md`。
+仍无后端服务：收藏 / 编辑 / 事故 / 草稿 / 进度 / 评审 / 角色均为浏览器本地状态，F20 是「仓库同源 + 导出回写」而非多人实时协同；pgvector 与 LLM 为可选接入；Tree-sitter 为可选依赖且仅覆盖常见 JS/TS；VS Code 扩展仍是原型；CI 只生成检查单、不自动回写 `content/`。详见 `README.md`。

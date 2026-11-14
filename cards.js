@@ -105,17 +105,21 @@
   C.chainGraph = function (chainId, atId, compact) {
     const c = KB.chains().find((x) => x.id === chainId);
     if (!c) return '<div class="empty"><h3>链路不存在</h3></div>';
-    const W = 1200, NW = 176, NH = 54;
-    const colX = (i) => 56 + i * 232;
+    // 3.0：>60 节点自动切「大图轻量模式」——缩小节点、收紧行距、省略关系标签与次要文字。
+    // 200 节点内保持 DOM 规模与重绘成本可控，基准见 tools/chain-bench.html。
+    const nodeCount = c.nodes.length, lite = nodeCount > 60;
+    const W = lite ? 1080 : 1200, NW = lite ? 164 : 176, NH = lite ? 34 : 54;
+    const stepY = lite ? 58 : 104, stepX = lite ? 204 : 232;
+    const colX = (i) => 56 + i * stepX;
     const counts = {}, pos = {};
     c.nodes.forEach((id, idx) => {
       const m = KB.byId(id) || {};
       const li = Math.max(0, KB.LAYERS.indexOf(m.layer || 'frontend'));
       const k = counts[li] || 0; counts[li] = k + 1;
-      pos[id] = { x: colX(li), y: 84 + k * 104, li, idx, m };
+      pos[id] = { x: colX(li), y: 84 + k * stepY, li, idx, m };
     });
     const rows = Math.max.apply(null, [1].concat(Object.values(counts)));
-    const H = Math.max(compact ? 260 : 330, 84 + rows * 104 + 44);
+    const H = Math.max(compact ? 260 : 330, 84 + rows * stepY + 44);
     const marker = 'arw-' + String(chainId).replace(/[^a-zA-Z0-9]/g, '');
     let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><defs>
       <marker id="${marker}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -129,24 +133,24 @@
       const sx = a.x + NW, sy = a.y + NH / 2, tx = b.x, ty = b.y + NH / 2;
       const d = `M ${sx} ${sy} C ${sx + 46} ${sy}, ${tx - 46} ${ty}, ${tx - 6} ${ty}`;
       svg += `<path class="chain-edge" d="${d}" marker-end="url(#${marker})"/>`;
-      if (!compact) svg += `<text class="chain-edge-label" x="${(sx + tx) / 2}" y="${(sy + ty) / 2 - 7}" text-anchor="middle" style="paint-order:stroke;stroke:var(--surface);stroke-width:4px">${E(trunc(e.relation, 8))}</text>`;
+      if (!compact && !lite) svg += `<text class="chain-edge-label" x="${(sx + tx) / 2}" y="${(sy + ty) / 2 - 7}" text-anchor="middle" style="paint-order:stroke;stroke:var(--surface);stroke-width:4px">${E(trunc(e.relation, 8))}</text>`;
     });
     c.nodes.forEach((id, idx) => {
       const p = pos[id]; if (!p) return;
       const here = atId === id;
-      const name = trunc(p.m.name || id, 21);
+      const name = trunc(p.m.name || id, lite ? 18 : 21);
       svg += `<g class="chain-node ${here ? 'here' : ''}" data-action="node" data-id="${E(id)}">
         <rect class="cn-main" x="${p.x}" y="${p.y}" width="${NW}" height="${NH}" rx="9"/>
         <rect class="cn-bar" x="${p.x}" y="${p.y}" width="4" height="${NH}" rx="2" fill="${KB.LAYER_META[KB.LAYERS[p.li]].color}"/>
-        <text class="cn-name" x="${p.x + 14}" y="${p.y + 23}">${E(name)}</text>
-        <text class="cn-layer" x="${p.x + 14}" y="${p.y + 41}">${E(KB.LAYER_META[KB.LAYERS[p.li]].label)} · ${E(trunc(p.m.module || '', 10))}</text>
-        <text class="cn-layer" x="${p.x + NW - 10}" y="${p.y + 41}" text-anchor="end">#${idx + 1}</text>
-        ${here ? `<text class="here-label" x="${p.x + NW}" y="${p.y - 7}" text-anchor="end">● 你在这</text>` : ''}
+        <text class="cn-name" x="${p.x + 14}" y="${p.y + (lite ? 22 : 23)}">${E(name)}</text>
+        ${lite ? '' : `<text class="cn-layer" x="${p.x + 14}" y="${p.y + 41}">${E(KB.LAYER_META[KB.LAYERS[p.li]].label)} · ${E(trunc(p.m.module || '', 10))}</text>
+        <text class="cn-layer" x="${p.x + NW - 10}" y="${p.y + 41}" text-anchor="end">#${idx + 1}</text>`}
+        ${(here && !lite) ? `<text class="here-label" x="${p.x + NW}" y="${p.y - 7}" text-anchor="end">● 你在这</text>` : ''}
       </g>`;
     });
     svg += '</svg>';
-    return `<div class="chain-viewport" data-chain="${E(chainId)}"><div class="chain-canvas" id="chainCanvas">${svg}</div></div>
-      <div class="legend-row"><span>${I('chain')} 点击节点 → 速览卡</span><span>滚轮缩放 / 拖拽平移</span><span>${c.nodes.length} 节点 · ${(c.edges || []).length} 条关系</span>${atId ? '<span class="badge badge-accent">● 已标注「你在这」</span>' : ''}</div>`;
+    return `<div class="chain-viewport" data-chain="${E(chainId)}"><div class="chain-canvas ${lite ? 'lite' : ''}" id="chainCanvas">${svg}</div></div>
+      <div class="legend-row"><span>${I('chain')} 点击节点 → 速览卡</span><span>滚轮缩放 / 拖拽平移</span><span>${nodeCount} 节点 · ${(c.edges || []).length} 条关系</span>${atId ? '<span class="badge badge-accent">● 已标注「你在这」</span>' : ''}${lite ? `<span class="badge badge-amber" title="大图下自动隐藏关系标签与次要文字，降低 DOM 与重绘成本">大图轻量模式 · ${nodeCount} 节点</span>` : ''}</div>`;
   };
 
   C.chainToolbar = function (chainId, atId) {

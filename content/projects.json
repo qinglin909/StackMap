@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0",
+  "defaultProjectId": "yunshu",
+  "projects": [
+    {
+      "id": "yunshu",
+      "name": "云枢 · 订单与附件平台",
+      "short": "云枢",
+      "description": "订单与附件平台，覆盖文件上传主链路与下单幂等链路。",
+      "stack": "React 18 / TypeScript / Node BFF / Java / PostgreSQL / OSS / MQ",
+      "contentBase": "content",
+      "color": "#4f6bed",
+      "status": "active",
+      "owner": "平台研发组",
+      "updatedAt": "2026-11-14"
+    },
+    {
+      "id": "xinglian",
+      "name": "星链 · 支付清算平台",
+      "short": "星链",
+      "description": "支付清算平台，覆盖支付下单、渠道路由、对账与差错处理。",
+      "stack": "Vue 3 / Go / gRPC / Kafka / MySQL / Redis / 渠道网关",
+      "contentBase": "content/projects/xinglian",
+      "color": "#0e9f8a",
+      "status": "active",
+      "owner": "支付研发组",
+      "updatedAt": "2026-11-14"
+    }
+  ]
+}

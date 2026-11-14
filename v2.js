@@ -380,7 +380,7 @@
     if (location.protocol !== 'file:' && location.origin) base = location.origin + location.pathname;
     let url = base + '#/entry/' + encodeURIComponent(m.id);
     const qs = [];
-    if (ref) qs.push('ref=' + encodeURIComponent(ref));
+    if (ref) qs.push('ref=' + encodeURIComponent(KB.maskPath(ref)));
     if (line) qs.push('line=' + encodeURIComponent(line));
     return url + (qs.length ? '?' + qs.join('&') : '');
   };

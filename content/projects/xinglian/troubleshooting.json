@@ -1,0 +1,114 @@
+{
+  "flows": [
+    {
+      "id": "t.pay.pending",
+      "symptom": "收银台一直显示「支付处理中」，渠道已扣款但商户订单未变为已支付",
+      "projectId": "xinglian",
+      "steps": [
+        {
+          "id": "s1",
+          "question": "渠道侧这笔 out_trade_no 是否已是 SUCCESS？",
+          "options": [
+            { "label": "渠道已成功扣款", "value": "paid", "next": "s2", "hint": "说明扣款成功，问题在回调验签或状态回写" },
+            { "label": "渠道无此单或已关闭", "value": "none", "next": "RESULT", "hint": "问题在渠道下单本身，按超时关单处理，勿引导重新支付" }
+          ]
+        },
+        {
+          "id": "s2",
+          "question": "回调验签日志里有没有验签失败或 5xx？",
+          "options": [
+            { "label": "有大量验签失败", "value": "signfail", "next": "s3", "hint": "优先怀疑渠道密钥轮换缺双密钥窗口" },
+            { "label": "回调根本没进来", "value": "nocb", "next": "RESULT", "hint": "怀疑回调地址白名单 / 网络 / 渠道投递配置，走日终对账补单" },
+            { "label": "验签成功但状态仍不对", "value": "written", "next": "RESULT", "hint": "怀疑从库延迟或前端查询缓存，查 xl.be.createPayOrder 的事务回写" }
+          ]
+        },
+        {
+          "id": "s3",
+          "question": "最近 24h 是否做过渠道公钥 / 签名密钥轮换？",
+          "options": [
+            { "label": "是", "value": "rotated", "next": "RESULT", "hint": "几乎可确定是双密钥窗口缺失，按 i.pay.callback_sign 处理" },
+            { "label": "否", "value": "notrotated", "next": "RESULT", "hint": "检查验签是否用了被框架重排过的 JSON body 而非原始字节" }
+          ]
+        }
+      ],
+      "resultMethodId": "xl.be.verifyCallback",
+      "resultHint": "重点看分层兜底卡的后端层（双密钥 + 验签失败进 DLQ）与前端层（60s 主动查渠道），再沿链路卡检查渠道回调 → 事件投递 → 日终对账补齐这一段。",
+      "relatedChainId": "c.pay.recon",
+      "relatedIncidentId": "i.pay.callback_sign"
+    },
+    {
+      "id": "t.pay.duplicate",
+      "symptom": "用户投诉同一订单被扣了两次 / 渠道出现两笔成功流水",
+      "projectId": "xinglian",
+      "steps": [
+        {
+          "id": "s1",
+          "question": "两笔渠道流水的商户订单号 out_trade_no 是否相同？",
+          "options": [
+            { "label": "不同", "value": "different", "next": "s2", "hint": "幂等键在收银台刷新后被重新生成了" },
+            { "label": "相同", "value": "same", "next": "s3", "hint": "说明后端幂等占位被并发击穿或未透传原始键" }
+          ]
+        },
+        {
+          "id": "s2",
+          "question": "用户中途是否刷新过收银台或改过支付方式？",
+          "options": [
+            { "label": "是", "value": "refresh", "next": "RESULT", "hint": "幂等键未与商户订单号稳定绑定" },
+            { "label": "否", "value": "norefresh", "next": "RESULT", "hint": "检查 BFF 是否改写了 Idempotency-Key 请求头" }
+          ]
+        },
+        {
+          "id": "s3",
+          "question": "幂等实现是 Lua 原子占位且支付单有 (merchant_id, out_trade_no) 唯一索引吗？",
+          "options": [
+            { "label": "不是，先查再写", "value": "checkthenact", "next": "RESULT", "hint": "并发窗口下必然重复扣款" },
+            { "label": "是", "value": "atomic", "next": "RESULT", "hint": "检查 Redis 主从切换是否丢了占位，或渠道超时是否触发了越窗重投" }
+          ]
+        }
+      ],
+      "resultMethodId": "xl.be.idempotentGuard",
+      "resultHint": "先看分层兜底卡的数据层（唯一索引）与后端层（原子占位 + 结果快照），再对照事故复盘 i.pay.duplicate_charge 的逐层缺失。",
+      "relatedChainId": "c.pay.submit",
+      "relatedIncidentId": "i.pay.duplicate_charge"
+    },
+    {
+      "id": "t.pay.signfail",
+      "symptom": "渠道回调报签名校验失败（SignInvalid），支付状态无法推进",
+      "projectId": "xinglian",
+      "steps": [
+        {
+          "id": "s1",
+          "question": "是否只在某一渠道上出现？",
+          "options": [
+            { "label": "是，特定渠道", "value": "onechannel", "next": "s2", "hint": "该渠道密钥/证书可能刚轮换，或验签串拼接规则与其它渠道不同" },
+            { "label": "否，全渠道失败", "value": "all", "next": "RESULT", "hint": "怀疑网关把 JSON body 反序列化重排字段导致原始字节被改写" }
+          ]
+        },
+        {
+          "id": "s2",
+          "question": "该渠道近 24h 是否轮换过公钥或签名证书？",
+          "options": [
+            { "label": "是", "value": "rotated", "next": "RESULT", "hint": "双密钥窗口缺失，按 i.pay.callback_sign 处理并补对账" },
+            { "label": "否", "value": "ok", "next": "RESULT", "hint": "检查 timestamp / nonce 防重放窗口与节点时钟漂移是否超过 5min" }
+          ]
+        }
+      ],
+      "resultMethodId": "xl.be.verifyCallback",
+      "resultHint": "重点看分层兜底卡的后端层（原始 body 字节验签 + 双密钥窗口）与基础设施层（按渠道隔离 DLQ + 验签失败率告警）。",
+      "relatedChainId": "c.pay.recon",
+      "relatedIncidentId": "i.pay.callback_sign"
+    }
+  ],
+  "sceneSynonyms": {
+    "支付下单": ["支付", "下单", "收银台", "预下单", "支付单", "商户订单号", "out_trade_no", "扣款", "提交支付"],
+    "渠道路由": ["渠道", "路由", "微信支付", "支付宝", "银联", "渠道网关", "费率", "限额", "熔断", "渠道健康度"],
+    "回调验签": ["回调", "异步通知", "验签", "签名", "RSA", "HMAC", "公钥", "密钥轮换", "重放", "notify"],
+    "对账差错": ["对账", "清算", "账单", "差错", "长款", "短款", "挂账", "冲正", "退款", "T+1"],
+    "幂等限流": ["幂等", "防重", "重复扣款", "Lua", "SETNX", "唯一索引", "限流", "令牌桶", "429", "防连点"]
+  },
+  "sceneExamples": [
+    "用户支付一直显示处理中，渠道其实已经扣款了",
+    "怎么防止同一订单被重复扣款",
+    "渠道回调总报签名不匹配怎么办"
+  ]
+}

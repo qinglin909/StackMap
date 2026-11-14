@@ -45,7 +45,7 @@ global.addEventListener = () => {};
 global.confirm = () => false;
 
 // ---- 加载脚本 ----
-for (const f of ['data.js', 'core.js', 'v2.js', 'cards.js', 'views2.js', 'app.js']) {
+for (const f of ['data.js', 'core.js', 'v2.js', 'v3.js', 'cards.js', 'views2.js', 'views3.js', 'app.js']) {
   try { vm.runInThisContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), { filename: f }); }
   catch (e) { errors.push(`加载 ${f} 失败：${e.message}\n${e.stack}`); }
 }
@@ -68,7 +68,10 @@ const routes = [
   '#/incidents', '#/incident/i.upload.callback', '#/drafts', '#/progress',
   '#/impact', '#/impact?id=m.fe.uploadFile',
   '#/entry/by-name/useUploadQueue?ref=apps/web/src/upload/useUploadQueue.ts&line=15',
-  '#/entry/m.fe.uploadFile?ref=apps/web/src/upload/uploadFileToOSS.ts&line=21'
+  '#/entry/m.fe.uploadFile?ref=apps/web/src/upload/uploadFileToOSS.ts&line=21',
+  // 3.0 新增页面
+  '#/projects', '#/compare', '#/compare?c=submitOrder', '#/reviews', '#/reviews?id=rv.001',
+  '#/reviews?method=m.fe.useUploadQueue', '#/compare?c=withIdempotency'
 ];
 for (const r of routes) {
   global.location.hash = r;
@@ -221,12 +224,90 @@ ok(im && im.checklist.length > 0, '变更影响检查单为空');
 ok(im.chains.length > 0, '未聚合到受影响链路');
 ok(KB.impactMarkdown('m.fe.uploadFile').includes('PR 变更影响检查单'), '检查单导出失败');
 
+// ---- 3.0：F18 多项目切换 ----
+ok(KB.projects().length === 2, '项目注册表未加载（应为 2 个项目）');
+// 注意：前面的 2.0 冒烟测试批准了一条本地草稿入库，因此全量 = 26 + 1 本地条目
+ok(KB.allMethods().length === 27, '全量条目应为 26 仓库条目 + 1 本地覆盖层条目');
+ok(KB.methods().length === 15 && KB.methods().every((x) => KB.projectIdOf(x) === 'yunshu'), '默认项目数据域应为云枢条目');
+ok(KB.sharedConcepts().length >= 4, '跨项目同名概念不足 4 组');
+const projSw = KB.setProject('xinglian');
+ok(projSw.ok && KB.methods().length === 12 && KB.methods().every((x) => KB.projectIdOf(x) === 'xinglian'), '切换到星链后数据域未生效');
+ok(KB.chains().length === 2 && KB.incidents().length === 2, '项目切换后链路 / 事故未跟随');
+KB.setProject('yunshu');
+ok(KB.methods().length === 15, '切回云枢失败');
+
+// ---- 3.0：F18 跨项目对比 ----
+const concepts = KB.concepts();
+ok(concepts.length >= 4, '同名概念列表为空');
+const cmp = KB.compareOf(concepts[0].name);
+ok(cmp && cmp.cols.length >= 2 && cmp.rows.length >= 10, '跨项目对比矩阵不完整');
+ok(cmp && cmp.diffCount > 0, '同名方法对比没有差异字段（对比无意义）');
+ok(KB.compareMarkdown(concepts[0].name).includes('跨项目对比'), '对比导出 Markdown 格式错误');
+ok(KB.projectMatrix().length === 2 && KB.projectStats('xinglian').methods === 12, '项目对比矩阵统计错误');
+// 浏览器仓库模式为 9/7；冒烟测试里已批准一条本地草稿入库，云枢会多 1 个独有名字
+ok(KB.projectMatrix()[0].unique.length >= 9 && KB.projectMatrix()[1].unique.length === 7,
+  '独有方法统计错误：' + KB.projectMatrix().map((r) => r.project.short + '=' + r.unique.length).join('/'));
+
+// ---- 3.0：F20 团队评审 ----
+ok(KB.reviews('*').length === 4, '评审记录未加载（全项目应为 4 条）');
+ok(KB.reviews().length === 2, '评审工作台应按当前项目过滤（云枢 2 条）');
+ok(KB.reviews('*').some((t) => t.status === 'open' || t.status === 'in_review'), '待处理评审统计错误');
+const rv = KB.reviewTemplate('m.fe.useUploadQueue');
+rv.title = '冒烟评审'; rv.author = 'tester';
+ok(KB.validateReview(rv).length === 0, '评审模板校验失败：' + KB.validateReview(rv).join('；'));
+ok(KB.saveReview(rv).ok, '评审保存失败');
+ok(KB.reviewById(rv.id) !== null, '本地评审未进入 KB.reviews()');
+ok(KB.validateReview(Object.assign({}, rv, { methodId: 'not.exist' })).length > 0, '非法评审未被拦截');
+const cm = KB.addReviewComment(rv.id, 'reviewer', '兜底缺数据层', 'request_changes');
+ok(cm.ok && KB.reviewById(rv.id).status === 'changes_requested', '「要求修改」表决未同步状态');
+KB.addReviewComment(rv.id, 'reviewer', '已补齐四问', 'approve');
+ok(KB.reviewById(rv.id).status === 'approved', '「通过」表决未同步状态');
+ok(KB.reviewsMarkdown().includes('冒烟评审'), '评审导出缺内容');
+KB.deleteReview(rv.id);
+ok(KB.reviewById(rv.id) === null, '删除评审未生效');
+
+// ---- 3.0：F19 本地检查单 / 数据备份提醒 ----
+ok(KB.prChecklistMarkdown('m.fe.uploadFile').includes('PR 复核检查单'), 'PR 检查单导出失败');
+ok(KB.ciCommands().length >= 3, 'CI 命令清单缺失');
+KB.state.lastBackupAt = '';
+ok(KB.backupStatus().due, '未导出备份时应提示到期');
+KB.markBackup();
+ok(!KB.backupStatus().due, '导出后备份状态未更新');
+
+// ---- 3.0：只读脱敏无旁路（复制 / 深链 / 搜索 / 详情 HTML） ----
+KB.state.role = 'readonly';
+const fullPath = 'apps/web/src/upload/uploadFileToOSS.ts';
+ok(!KB.maskPath(fullPath).includes('uploadFileToOSS.ts'), '路径脱敏未生效');
+ok(!KB.repoPath(m).includes('uploadFileToOSS.ts'), '方法路径脱敏未生效');
+ok(!KB.deepLink(m, fullPath, 9).includes('uploadFileToOSS.ts'), '深链携带完整内部路径（脱敏旁路）');
+global.location.hash = '#/entry/m.fe.uploadFile';
+KB.state.route = KB.parseHash();
+KB.render();
+ok(!els.main.innerHTML.includes(fullPath), '详情页 HTML 泄露完整源码路径');
+KB.state.role = 'editor';
+
+// ---- 3.0：200 节点链路轻量渲染 ----
+const savedChains = KB.state.repo.chains;
+const bigNodes = [], bigEdges = [];
+for (let i = 0; i < 200; i++) {
+  const id = 'bench.' + i;
+  bigNodes.push(id);
+  if (i) bigEdges.push({ from: bigNodes[i - 1], to: id, relation: '调用' });
+}
+KB.state.repo.chains = [{ id: 'bench', name: '基准链路', entryMethodId: bigNodes[0], nodes: bigNodes, edges: bigEdges, description: '', projectId: KB.state.projectId }];
+const bigHtml = KB.cards.chainGraph('bench', bigNodes[0], false);
+ok(bigHtml.includes('大图轻量模式') && bigHtml.includes('200 节点'), '200 节点未触发大图轻量模式');
+ok(!bigHtml.includes('chain-edge-label'), '大图模式仍渲染关系标签');
+KB.state.repo.chains = savedChains;
+ok(!KB.cards.chainGraph('c.upload', 'm.fe.uploadFile', false).includes('大图轻量模式'), '8 节点小图不应触发轻量模式');
+
 // ---- 输出 ----
 if (errors.length) {
   console.error(`\n✗ 冒烟测试失败，共 ${errors.length} 项：`);
   errors.forEach((e) => console.error('  - ' + e));
   process.exit(1);
 }
-console.log(`✓ 页面渲染 ${routes.length} 个 / 8 类卡片 / 2 个 Markdown 导入 / ${KB.methods().length} 个条目校验`);
+console.log(`✓ 页面渲染 ${routes.length} 个 / 8 类卡片 / 2 个 Markdown 导入 / ${KB.allMethods().length} 个条目校验（2 个项目）`);
 console.log('✓ 决策树 END 路径全部有推荐方案；排查流步骤可达；过滤 / 场景反查 / 预案导出正常');
 console.log('✓ 2.0：向量检索 / 事故录入 / 草稿审核门禁 / IDE 深链 / links 骨架 / 打卡周报 / 变更影响');
+console.log('✓ 3.0：多项目切换 / 跨项目对比 / 团队评审与表决 / 只读脱敏无旁路 / 200 节点轻量渲染 / 备份提醒');

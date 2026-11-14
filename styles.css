@@ -466,6 +466,54 @@ li { margin: 3px 0; }
 .stat.red .num { color: var(--red); }
 .stat .num .tiny { font-size: 14px; font-weight: 500; color: var(--text-3); }
 
+/* ===== StackMap 3.0：项目空间 / 跨项目对比 / 团队评审 ===== */
+.proj-switch-wrap { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.switch-icon { width: 14px; height: 14px; fill: none; stroke: var(--text-3); }
+.proj-switch { border: 0; background: transparent; color: var(--text); font: 600 12px/1.4 inherit; outline: none; cursor: pointer; max-width: 120px; }
+.proj-switch option { background: var(--surface); color: var(--text); }
+
+.proj-card { position: relative; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--proj-color, var(--accent)); border-radius: var(--radius); box-shadow: var(--shadow); }
+.proj-card.active { border-color: var(--proj-color, var(--accent)); background: linear-gradient(180deg, var(--accent-soft), var(--surface) 45%); }
+.proj-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--proj-color, var(--accent)); flex: none; }
+.proj-stats { gap: 8px; }
+.proj-stats > div { display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.proj-stats b { font-size: 18px; line-height: 1.1; }
+.proj-stats span { font-size: 10px; color: var(--text-3); }
+.cov-list { display: flex; flex-direction: column; gap: 5px; }
+.cov-row { display: grid; grid-template-columns: 62px minmax(0, 1fr) 24px; align-items: center; gap: 8px; }
+.cov-track { display: block; height: 6px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
+.cov-fill { display: block; height: 100%; border-radius: 99px; }
+
+.compare-tbl { table-layout: fixed; }
+.compare-tbl th:first-child, .compare-tbl .cmp-field { width: 150px; }
+.compare-tbl td { vertical-align: top; font-size: 12px; line-height: 1.6; word-break: break-word; }
+.compare-tbl .diff-row { background: var(--amber-soft); }
+.compare-tbl .diff-row .cmp-field { border-left: 3px solid var(--amber); }
+.compare-tbl th .tiny { font-weight: 400; }
+
+.review-grid { display: grid; grid-template-columns: minmax(230px, 310px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.review-list { padding: 6px; max-height: 780px; overflow: auto; }
+.review-row { display: block; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 4px; background: transparent; color: var(--text); border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.review-row:hover { background: var(--surface-2); }
+.review-row.active { background: var(--accent-soft); border-color: var(--accent); }
+.check-inline { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.check-row { display: flex; align-items: flex-start; gap: 9px; padding: 7px 8px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.check-row:last-child { border-bottom: 0; }
+.check-row.done span { color: var(--text-3); text-decoration: line-through; }
+.check-row input, .check-inline input { accent-color: var(--accent); flex: none; }
+.timeline { border-left: 2px solid var(--border); padding-left: 14px; display: flex; flex-direction: column; gap: 12px; }
+.tl-item { position: relative; }
+.tl-item::before { content: ''; position: absolute; left: -19px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); }
+.review-form { padding: 12px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.review-form .plain-input { width: 100%; box-sizing: border-box; }
+.p12 { padding: 12px; }
+
+@media (max-width: 900px) {
+  .review-grid { grid-template-columns: 1fr; }
+  .review-list { max-height: 260px; }
+  .proj-switch-wrap { display: none; }
+}
+
 .print-only { display: none; }
 @media print {
   .sidebar, .topbar, .card-rail, .card-foot, .btn, .icon-btn, #toastRoot, .modal-overlay { display: none !important; }

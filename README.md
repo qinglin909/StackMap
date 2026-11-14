@@ -1,10 +1,10 @@
 # StackMap · 全栈方法知识库与决策辅助 App
 
-> **当前版本 v2.0.0**（`v1.0.0` 为最小闭环基线，两个版本均有 Git 标签）
+> **当前版本 v3.0.0**（`v1.0.0` 最小闭环 → `v2.0.0` 二期 → `v3.0.0` 三期，均有 Git 标签）
 
 面向研发团队的项目知识库：以「方法 / 接口 / 组件」为最小单元，用卡片讲清**是什么、为什么用、换别的会怎样、怎么兜底**，并支持沿调用链查看上下游影响。内容与代码仓库同源，随 PR 更新。
 
-零依赖、纯静态实现（HTML + CSS + 原生 JS），数据事实源是 `content/` 目录下的 JSON / Markdown。2.0 补齐二期全部能力，并把 IDE 跳转、调用关系抽取、变更影响分析做成端到端闭环。
+零依赖、纯静态实现（HTML + CSS + 原生 JS）。**3.0 起内容按项目分目录存放**，事实源是 `content/projects.json` 注册的各项目 JSON；`data.js` 只是 `file://` 打开时的离线快照。
 
 ---
 
@@ -19,23 +19,28 @@ node serve.mjs          # 或 npm start
 # file:// 下浏览器禁止 fetch 本地文件，App 自动回退到 data.js 离线快照
 ```
 
-> 两种模式的区别只在「数据源」：HTTP 模式直接读 `content/*.json`，改仓库文件刷新即生效；file:// 模式读 `data.js`（由 `npm run build` 生成）。离线快照不是第二份事实源，它只是构建产物，2.0 起会一并打包 links 抽取骨架。
+> 两种模式只差「数据源」：HTTP 模式按项目注册表直读 `content/**/*.json`；file:// 模式读构建产物 `data.js`。离线快照不是第二份事实源。
 
 ```bash
-npm run build          # 从 content/ 重建 data.js，并运行验收标准校验
-npm test               # 无浏览器冒烟测试：25 个页面 / 8 类卡片 / 2.0 能力断言
-npm run extract:links  # 从 samples/ 源码抽取签名与调用关系，生成 links 骨架
+npm run build          # 聚合所有项目 → data.js，并跑全量验收校验（失败非零退出）
+npm test               # 无浏览器冒烟测试：32 个页面 / 8 类卡片 / 3.0 能力断言
+npm run extract:links  # 从 samples/ 抽取签名与调用关系，生成 links 骨架
+npm run impact         # 从 git diff 生成 PR 变更影响检查单（impact.md）
+npm run impact:self-test  # 不依赖 git 的脚本自测
 npm run verify         # 一键：构建 + 冒烟 + 抽取自检
 ```
+
+**链路性能基准**：用无头 Chrome 打开 `http://localhost:5173/tools/chain-bench.html`，页面会实测 8 / 60 / 120 / 200 节点的生成、挂载、布局耗时，`document.title` 输出 `BENCH {…}`。
 
 ---
 
 ## 版本历史
 
-| 标签 | 提交 | 内容 |
-| --- | --- | --- |
-| `v1.0.0` | 最小闭环 | MVP F1–F8（四问 + 链路 + 仓库同源），附带卡片 4/6/8、场景反查近似、决策与排查向导、Markdown/PDF 导出 |
-| `v2.0.0` | 二期完成 | F9–F17 全部补齐，另提前实现 F19；新增 `v2.js` / `views2.js`、抽取工具、VS Code 扩展原型、4 个新页面 |
+| 标签 | 内容 |
+| --- | --- |
+| `v1.0.0` | MVP F1–F8（四问 + 链路 + 仓库同源），附带卡片 4/6/8、场景反查近似、决策与排查向导、导出 |
+| `v2.0.0` | F9–F17 全部补齐，提前实现 F19；新增 `v2.js` / `views2.js`、抽取工具、VS Code 扩展原型、4 个新页面 |
+| `v3.0.0` | **三期 F18 / F19 / F20 完成**：多项目复用与跨项目对比、PR 变更影响自动提醒（CI）、团队评论与评审；另修复只读脱敏旁路、200 节点链路渲染、数据定期备份提醒 |
 
 详见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -44,36 +49,39 @@ npm run verify         # 一键：构建 + 冒烟 + 抽取自检
 ## 目录结构
 
 ```
-index.html           应用外壳（侧栏、顶栏、图标精灵）
-styles.css           主题变量（浅/深色）、字号缩放、卡片/表格/链路图/2.0 页面/打印样式
-core.js              1.0 核心：状态、仓库加载、校验、导入解析、路由、收藏、导出
-v2.js                2.0 逻辑层：向量检索 / 事故 / 草稿 / 进度 / 影响 / 深链 / 骨架消费
-cards.js             8 类卡片、决策向导、故障排查向导、链路 SVG
+index.html           应用外壳（侧栏、顶栏项目切换器、图标精灵）
+styles.css           浅/深色主题、字号缩放、卡片/表格/链路图/2.0/3.0 页面、打印样式
+core.js              核心：多项目仓库加载、按项目过滤的数据访问、校验、导入、路由、收藏、导出
+v2.js                2.0 逻辑：向量检索 / 事故 / 草稿 / 进度 / 影响 / 深链 / 骨架消费
+v3.js                3.0 逻辑：项目注册与切换 / 跨项目对比 / 团队评审 / 备份提醒 / PR 检查单
+cards.js             8 类卡片、决策向导、故障排查向导、链路 SVG（>60 节点自动轻量渲染）
 views2.js            2.0 页面：事故复盘 / AI 草稿审核 / 学习进度 / 变更影响分析
-app.js               1.0 页面视图、事件总线（委托 views2）、CRUD 编辑器、启动
+views3.js            3.0 页面：项目空间 / 跨项目对比 / 团队评审
+app.js               页面视图、事件总线（委托 views2 / views3）、CRUD 编辑器、启动
 data.js              【生成物】离线快照，勿手改
 serve.mjs            零依赖本地静态服务
 content/             ★ 内容事实源
-  methods.json           14 个 MethodEntry
-  chains.json            2 条链路
-  incidents.json         2 起事故复盘
-  troubleshooting.json   3 条排查流 + 场景同义词表
-  methods/*.md           2 个 Markdown 撰写样例（可导入）
+  projects.json          项目注册表（id / name / contentBase / color / owner）
+  reviews.json           团队评审与讨论记录（F20）
+  methods.json 等四类     yunshu 项目（1.0 起的事实源，保持不动）
+  projects/xinglian/      xinglian 项目的四类 JSON（3.0 新增）
   generated/links.skeleton.json  【生成物】F15 自动抽取的 links 骨架
-  README.md              撰写格式与同步约定
+  methods/*.md            Markdown 撰写样例（可导入）
+  README.md / README-3.0.md  撰写格式、多项目与评审数据约定
 schema/method-entry.schema.json   JSON Schema 字段约束
 samples/             F15 演示源码（5 个 TS 文件，repoPath 与条目一致）
-ide/
-  README.md               F14 端到端跳转说明
-  vscode-stackmap/        VS Code 扩展原型（package.json / extension.js / README.md）
+ide/                 F14 VS Code 扩展原型与端到端说明
+.github/workflows/stackmap.yml   F19 PR 自动提醒工作流
 tools/
-  build-snapshot.mjs      生成 data.js + 内容校验（含骨架引用完整性）
-  smoke-test.mjs          无浏览器冒烟测试（含 2.0 断言）
+  build-snapshot.mjs      聚合多项目 → data.js + 全量验收校验
+  smoke-test.mjs          无浏览器冒烟测试（32 页面 + 1.0/2.0/3.0 断言）
+  pr-impact.mjs           git diff → repoPath → 影响清单 Markdown/JSON
   extract-links.mjs       F15 签名与调用关系抽取（可选 tree-sitter）
-  README-2.0-tools.md     工具链参数与审核流程
+  chain-bench.html        200 节点链路渲染基准
+  README-2.0-tools.md / README-3.0-tools.md  工具链参数与审核流程
 ```
 
-示例项目为「云枢 · 订单与附件平台」，覆盖**文件上传主链路**与**下单幂等链路**，跨 `frontend / bff / backend / data / infra` 五层，并带两起真实感事故复盘。
+示例含两个项目：**云枢 · 订单与附件平台**（14 条目 / 2 链路 / 2 事故 / 3 排查流）与 **星链 · 支付清算平台**（12 条目 / 2 链路 / 2 事故 / 3 排查流），均跨 `frontend / bff / backend / data / infra` 五层，共享 5 个同名概念，另有 4 条团队评审记录。
 
 ---
 
@@ -81,23 +89,24 @@ tools/
 
 | 路由 | 页面 | 主要内容 |
 | --- | --- | --- |
-| `#/home` | 首页 | 按层浏览、全局搜索、层 + 标签组合筛选、最近更新、同步状态、收藏预览 |
-| `#/entry/<id>?tab=...` | 条目详情页 | 四问 Tab + 链路 Tab + 示例 + 踩坑；复制 IDE 深链、标记已掌握 |
-| `#/entry/by-name/<name>?ref=...&line=...` | IDE 深链落地 | 按方法名解析条目，显示「来自 IDE」来源条与源码行号 |
+| `#/home` | 首页 | 当前项目按层浏览、全局搜索、层 + 标签组合筛选、最近更新、同步状态、到期备份提醒 |
+| `#/entry/<id>?tab=...` | 条目详情页 | 四问 Tab + 链路 Tab + 示例 + 踩坑；复制 IDE 深链、标记已掌握、**跳该方法的评审** |
+| `#/entry/by-name/<name>?ref=...&line=...` | IDE 深链落地 | 按方法名解析条目，显示「来自 IDE」来源条与源码行号（只读时路径脱敏） |
 | `#/cards` / `#/cards/<id>?i=n` | 卡片学习 | 8 卡推荐路径，卡片间互相跳转 |
 | `#/chains` / `#/chain/<id>?at=<methodId>` | 链路视图 | 分列 SVG 调用链、缩放/拖拽、节点跳速览卡、「你在这」 |
 | `#/scene` | 场景反查 | 自然语言场景 → 向量语义检索 → 跨层聚合相关方法 |
-| `#/troubleshoot` / `#/troubleshoot/<flowId>` | 故障排查 | 现象 → 逐级定位 → 命中方法 → 兜底建议 |
+| `#/troubleshoot` | 故障排查 | 现象 → 逐级定位 → 命中方法 → 兜底建议 |
 | `#/favorites` | 我的预案 | 收藏的分层兜底策略、导出 Markdown / PDF |
-| `#/incidents` / `#/incident/<id>` | **事故复盘（2.0）** | 事故列表与详情、缺失兜底逐层打叉、录入 / 删除 / 导出 |
-| `#/drafts` | **AI 草稿审核（2.0）** | 生成四问草稿 → 逐字段人工核实 → 批准入库 → 导出 Markdown |
-| `#/progress` | **学习进度（2.0）** | 打卡、连续天数、分层覆盖度、活动时间线、周报预览与导出 |
-| `#/impact?id=<methodId>` | **变更影响分析（2.0）** | PR 复核清单、受影响链路、共享节点、links 骨架差异、检查单导出 |
+| `#/incidents` / `#/incident/<id>` | 事故复盘 | 事故列表与详情、缺失兜底逐层打叉、录入 / 删除 / 导出 |
+| `#/drafts` | AI 草稿审核 | 生成四问草稿 → 逐字段人工核实 → 批准入库 → 导出 Markdown |
+| `#/progress` | 学习进度 | 打卡、连续天数、分层覆盖度、活动时间线、周报导出 |
+| `#/impact?id=<methodId>` | 变更影响分析 | PR 复核清单、受影响链路、共享节点、links 骨架差异 |
+| `#/projects` | **项目空间（3.0）** | 项目卡片与覆盖度、切换数据域、项目对比矩阵、同名概念、CI 说明、全量备份 |
+| `#/compare?c=<name>` | **跨项目对比（3.0）** | 同名方法逐字段并排（13 字段）、差异高亮、只看差异、导出对比 Markdown |
+| `#/reviews?id=<id>` | **团队评审（3.0）** | 评审/讨论列表、检查单勾选、状态流转、评论时间线、通过/要求修改表决、导出 |
 | `#/admin` | 内容管理 | 同步状态、过期提醒、验收校验、导入、CRUD、骨架差异、备份、权限 |
 
-**核心流程**：搜索/浏览 → 速览卡（点击翻面）→ 为什么用 → 对比卡（展开代码 / 条件化结论）→ 决策向导 → 分层兜底卡（加入我的预案）→ 故障排查 → 链路卡（点节点开速览卡）→ 踩坑复盘卡。也可从链路卡任意节点反向进入。
-
-**2.0 闭环**：IDE 中方法名 → 深链落地条目 → 改代码后跑 `extract:links` 得到 links 骨架 → 变更影响分析页查看骨架差异并采纳 → AI 起草四问草稿 → 人工核实批准入库 → 学习进度打卡 / 周报。
+**顶栏项目切换器**会切换全局数据域：首页、搜索、链路、卡片、场景反查、事故、评审都跟随；`KB.byId` 与按名深链仍在全量里解析，跨项目跳转不会断。
 
 ---
 
@@ -111,85 +120,86 @@ tools/
 | 4 | 决策向导 | 换别的会怎样·交互版 | 2–4 题问卷 → 规则匹配 → 带理由的推荐方案，跳卡 5 |
 | 5 | 分层兜底 | 怎么兜底 | **按 layer 分组**，每行含策略 / 代码模板 / 监控项，展开全部，「加入我的预案」 |
 | 6 | 故障排查 | 怎么兜底·反向 | 现象 → 逐级定位线索 → 命中方法 → 兜底建议 → 链路卡 / 复盘卡 |
-| 7 | 链路 | 上下游关系 | SVG 分列图、节点点击开速览卡、缩放拖拽、标注「你在这」 |
-| 8 | 踩坑复盘 | 综合 | 事故 → 根因 → 缺失兜底逐层打叉 → 改进 → 跳对应方法（**含本地录入的事故**） |
+| 7 | 链路 | 上下游关系 | SVG 分列图、节点点击开速览卡、缩放拖拽、「你在这」；>60 节点自动轻量渲染 |
+| 8 | 踩坑复盘 | 综合 | 事故 → 根因 → 缺失兜底逐层打叉 → 改进 → 跳对应方法（含本地录入事故） |
 
-新增卡片类型不需要改核心表：在 JSON 里加可选字段，再在 `cards.js` 的 `C.META` 注册一个渲染函数即可。
+新增卡片不需改核心表：JSON 里加可选字段，再在 `cards.js` 的 `C.META` 注册渲染函数。
 
 ---
 
 ## 功能清单对照
 
-### MVP（1.0 已完成）
+### MVP（1.0 完成）
 
 | 编号 | 功能 | 实现 |
 | --- | --- | --- |
-| F1 | 条目 CRUD 与分层浏览 | 首页按 5 层筛选；内容管理页以完整 JSON 编辑器新建 / 编辑 / 删除（本地覆盖层） |
-| F2 | 卡片 1/2/3/5/7 | 已实现，且卡片 4/6/8 一并提前完成 |
+| F1 | 条目 CRUD 与分层浏览 | 按 5 层筛选；内容管理页完整 JSON 编辑器（本地覆盖层） |
+| F2 | 卡片 1/2/3/5/7 | 已实现，卡片 4/6/8 一并提前完成 |
 | F3 | 四问详情页 + 链路 Tab | 7 个 Tab，链路 Tab 含 upstream/downstream/related 与内嵌链路图 |
-| F4 | 全局搜索 | 顶栏搜索（名 / 签名 / 标签 / 技术栈 / 模块 / 源码路径 / 踩坑），支持层 + 标签组合 |
+| F4 | 全局搜索 | 名 / 签名 / 标签 / 技术栈 / 模块 / 源码路径 / 踩坑，层 + 标签组合 |
 | F5 | 收藏与「我的预案」 | localStorage 收藏，按方法 + 层分组，导出 Markdown / 打印 PDF |
-| F6 | 内容与仓库同源 | HTTP 模式直读 `content/*.json`；支持 Markdown / JSON 导入；「待同步」与过期提醒 |
-| F7 | 链路可视化 | SVG 按层分列、贝塞尔连线、节点点击开速览卡、滚轮缩放 / 拖拽、返回恢复滚动位置 |
-| F8 | 权限 | 只读用户 / 编辑者 / 管理员；导入、编辑、删除、备份、事故录入、草稿批准按角色门控；只读模式路径脱敏 |
+| F6 | 内容与仓库同源 | HTTP 直读各项目 JSON；Markdown / JSON 导入；「待同步」与过期提醒 |
+| F7 | 链路可视化 | SVG 按层分列、贝塞尔连线、节点点击开速览卡、缩放拖拽、返回恢复滚动位置 |
+| F8 | 权限 | 只读 / 编辑者 / 管理员；写操作按角色门控；**只读模式路径全链路脱敏** |
 
-### 二期（2.0 全部完成）
+### 二期（2.0 完成）
 
-| 编号 | 功能 | 2.0 实现 |
+| 编号 | 功能 | 实现 |
 | --- | --- | --- |
-| F9 | 决策向导卡 | 14 个条目均配置 `decisionTree`，所有 END 路径有推荐方案（逐路径校验） |
-| F10 | 故障排查向导 | 3 条排查流，步骤可达性自动校验 |
-| F11 | 场景反查（语义检索） | **重写为向量检索**：中英混合分词 → TF-IDF 稀疏向量 → 余弦相似度 + 同义词扩展，字段加权；可配置 pgvector 远程检索，失败自动回退本地，场景页显示模式与相关度百分比 |
-| F12 | 事故复盘卡与事故录入 | 卡 8 + 独立事故页 / 详情页 + **结构化录入表单**（现象、根因、逐层缺失兜底、关联方法、改进）+ 删除 / 导出；本地事故与卡 8 共用 `item/expected` 字段契约 |
-| F13 | AI 起草四问草稿 | 可配置 OpenAI 兼容 LLM 起草；未配置 / 调用失败自动回退**本地启发式起草器**；所有无法确认的内容标注「待人工核实」；**强制人工审核门禁**：必须勾选「已人工核实」并通过验收校验才能批准入库，记录审核人与时间 |
-| F14 | IDE / 注释跳转 | `ide/vscode-stackmap` 扩展原型（CodeLens / 命令 / `// @stackmap <id>` 注释标签）+ App 侧 `#/entry/by-name/<name>?ref=&line=` 路由与来源条 + 一键复制固定 id / 按名深链 |
-| F15 | Tree-sitter 自动抽取 | `tools/extract-links.mjs`：检测到 tree-sitter 时使用，否则内置轻量静态解析器；抽取签名与调用关系，生成 `content/generated/links.skeleton.json`；`npm run build` 打包进快照并校验引用完整性；内容管理页与变更影响页展示「人工现值 vs 建议值」并支持**逐条采纳**（不自动覆盖） |
-| F16 | 学习进度、打卡、周报 | 按天去重记录浏览 / 卡片 / 向导 / 预案 / 审核等事件，连续天数、等级、分层覆盖度、活动时间线，一键导出或复制 Markdown 周报 |
-| F17 | 导出预案 Markdown/PDF | 沿用 1.0，导出保留层、策略、代码模板、监控项四要素 |
+| F9 | 决策向导卡 | 条目配置 `decisionTree`，所有 END 路径有推荐方案（逐路径校验） |
+| F10 | 故障排查向导 | 6 条排查流（两项目合计），步骤可达性自动校验 |
+| F11 | 场景反查（语义检索） | 中英混合分词 → TF-IDF → 余弦相似度 + 同义词扩展；可配 pgvector，失败自动回退 |
+| F12 | 事故复盘卡与录入 | 卡 8 + 独立事故页 + 结构化录入 + 删除 / 导出；字段契约 `item/expected` |
+| F13 | AI 起草四问草稿 | 可接 OpenAI 兼容 LLM，默认本地启发式；**强制人工审核门禁** + 审核人记录 |
+| F14 | IDE / 注释跳转 | VS Code 扩展原型（CodeLens / 命令 / `// @stackmap`） + by-name 深链路由与来源条 |
+| F15 | Tree-sitter 自动抽取 | 可选 tree-sitter，默认内置静态解析器；links 骨架差异展示与逐条采纳（不自动覆盖） |
+| F16 | 学习进度、打卡、周报 | 按天去重事件、连续天数、分层覆盖度、时间线、Markdown 周报 |
+| F17 | 导出预案 Markdown/PDF | 保留层、策略、代码模板、监控项四要素 |
 
-### 三期
+### 三期（3.0 完成）
 
-- **F19 变更影响分析**：2.0 **提前实现**（links + 链路 edges 下游可达节点 + 跨链路共享节点 + 事故 / 排查流 / 预案 → PR 检查单导出）。PR 自动触发提醒仍需接 CI。
-- **F18 多项目复用与跨项目对比 / F20 团队评论评审**：未实现，需真实后端与账号体系。
+| 编号 | 功能 | 3.0 实现 |
+| --- | --- | --- |
+| **F18** | 多项目复用与跨项目对比 | `content/projects.json` 注册表 + 各项目独立四类 JSON；顶栏切换数据域；项目空间对比矩阵（10 个维度）、五层覆盖度、独有/共享方法；同名概念 13 字段逐项并排、差异高亮、导出 Markdown |
+| **F19** | 变更影响分析 + **自动提醒** | 2.0 的人工检查单保留；3.0 新增 `tools/pr-impact.mjs` 与 `.github/workflows/stackmap.yml`：PR 触发 → git diff 按 repoPath 映射条目 → 波及链路 / 下游节点 / 事故 / 排查流 → 写入 job summary 与带标记的 PR comment；**内容漂移**（源码改了但 content/ 未动）额外 notice |
+| **F20** | 团队评论、评审条目 | `content/reviews.json` + 评审工作台：讨论/评审两类、四种状态流转、检查单逐项勾选、评论时间线与通过/要求修改表决、按方法反查、导出 Markdown 回写仓库；条目详情页直达 |
+
+> 三期实现方式沿用产品「内容与仓库同源」的定位：评审记录导出后由编辑者回写仓库，**App 不自动改写 `content/`**；多人实时协作仍需真实后端（见边界）。
+
+### 顺带补齐的非功能缺口（3.0）
+
+- **只读脱敏旁路修复**：`KB.maskPath()` 统一处理显示、复制按钮、IDE 深链 `ref`、搜索索引与来源条；只读用户无法再从任何出口拿到完整内部路径。
+- **200 节点链路流畅**：>60 节点自动切轻量渲染（缩小节点、收紧行距、省略关系标签与次要文字）；`tools/chain-bench.html` 实测 **200 节点 13.7ms / 1023 DOM 元素 / 86.5KB HTML**（8 节点 19ms 基线，阈值 1000ms）。
+- **数据定期备份**：首页与项目空间按 7 天周期提示到期，导出全量 JSON（含项目、条目、链路、事故、评审、骨架）后自动记录时间。
 
 ---
 
-## 2.0 新能力使用说明
+## 3.0 使用说明
 
-### F11 场景反查 · 向量服务配置
+### 新增一个项目
 
-默认零配置可用（本地 TF-IDF）。在「场景反查」或「AI 草稿审核」页点「配置 AI / 向量服务」：
+1. 在 `content/projects/<id>/` 下建 `methods.json` / `chains.json` / `incidents.json` / `troubleshooting.json`，文件名与顶层 key 与现有项目一致，条目带 `projectId`。
+2. 在 `content/projects.json` 的 `projects` 数组注册 `id / name / short / contentBase / color / owner`。
+3. `npm run build` 会聚合全部项目并校验：id 全局唯一、projectId 已注册、结论含条件、兜底按层三要素、链路/事故/排查流/评审引用完整。
+4. 两个项目使用**相同方法名**即自动成为「同名概念」，出现在项目空间与跨项目对比页。
 
-- `embeddingEndpoint`：pgvector 检索服务，契约 `POST { query, topK, model } → { results: [{ id: "<methodId>", score: 0..1 }] }`；
-- `llmEndpoint`：OpenAI 兼容 `/chat/completions`，用于 F13 起草；
-- `apiKey`：**只保留在当前会话内存，不写入浏览器存储**；
-- 任一远程调用失败都会自动回退本地实现，并在页面顶部说明回退原因。
+没有 `projects.json` 时自动退回 1.0/2.0 单项目布局，旧仓库可直接升级。
 
-### F12 事故录入
+### 团队评审
 
-「事故复盘」→「录入事故」。缺失兜底按 5 层填写，字段与仓库 `content/incidents.json` 的 `item / expected` 一致，因此录入后**立刻能在卡 8 踩坑复盘卡看到**。导出 Markdown 后由编辑者回写仓库即为正式事实源。
+「团队评审」→「发起评审」→ 选方法与类型 → 逐项勾检查单 → 在讨论区发表意见或点「通过 / 要求修改」（表决同步状态）→「导出评审记录」→ 编辑者整理进 `content/reviews.json` → `npm run build`。只读用户可查看但不可写。条目详情页的「评审」按钮可按方法反查。
 
-### F13 AI 草稿审核门禁
+### PR 自动提醒
 
-「AI 草稿审核」→ 填方法名与场景 → 生成草稿 → 「审核 / 编辑四问」逐字段核实（JSON 编辑器，保存时跑验收校验）→ 勾选「已人工核实」→ 「批准入库」。未勾选时批准按钮被拒绝并提示，批准后的条目写入本地覆盖层并标记「待同步」，同时记录审核人和时间。草稿可导出 Markdown 供 PR 评审。
-
-### F14 IDE 跳转
-
-把 `ide/vscode-stackmap/` 放入 `~/.vscode/extensions`（或 F5 调试），配置 `stackmap.baseUrl`。光标停在方法名上，通过 CodeLens / 命令面板打开或复制深链；命中 `stackmap.methodMap` 或注释标签时走固定 id 深链，否则按名解析。App 落地页会显示「来自 IDE」来源条与源码行号。详见 `ide/README.md`。
-
-### F15 调用关系抽取
+`.github/workflows/stackmap.yml` 在 `pull_request`（含 `content/**`、`samples/**`、根目录 js/css/html、`tools/**` 等）与手动触发时运行：
 
 ```bash
-npm run extract:links                 # 扫描 samples/，写出骨架
-node tools/extract-links.mjs --src <真实源码目录> --check   # 只对比不写
-npm run build                         # 把骨架打包进 data.js 并校验引用
+node tools/pr-impact.mjs --base origin/<base> --head HEAD --out impact.md
 ```
 
-骨架是**建议**，不覆盖人工 `links`。在「内容管理」看全局差异，在「变更影响分析」逐条查看与采纳。参数与字段含义见 `tools/README-2.0-tools.md`。
+本地等价：`npm run impact`（或 `npm run impact:self-test`）。脚本扫描 `content/**` 下所有项目的四类 JSON，按「精确 → 后缀 → 目录前缀」匹配 `repoPath`，输出 JSON 契约（`hits[] / drift / reviewers / markdown`）与中文检查单；git 不可用或无命中时优雅降级。**只生成建议，不改 `content/`**。fork PR 只写 job summary，不尝试发评论。
 
-### F16 学习进度 / F19 变更影响
-
-进度页按天去重，无需手动记录浏览；打卡与「标记已掌握」需主动点击。变更影响页选择方法后生成 PR 复核清单，可导出 Markdown 附到 PR 描述。
+参数与字段详见 `tools/README-3.0-tools.md`；多项目与评审数据约定见 `content/README-3.0.md`。
 
 ---
 
@@ -197,46 +207,50 @@ npm run build                         # 把骨架打包进 data.js 并校验引�
 
 | 验收项 | 实现与校验位置 |
 | --- | --- |
-| 任一条目完整展示四问 + 链路，卡片间互跳 | 详情页 7 Tab；`cards.js` 每张卡底部跳转按钮；`tools/smoke-test.mjs` 逐卡渲染 |
-| 对比卡结论必须含「什么条件下选哪个」 | `KB.validateEntry` 双条件正则校验；内容管理页红标；`build-snapshot` 校验失败非零退出 |
-| 兜底卡按层分组，每层含策略 / 代码模板 / 监控项 | `C.fallbackGroup` 按 `frontend→infra` 分组；每行三要素徽标；校验逐行检查 4 个字段且至少 2 层 |
-| 链路卡节点点击可到达速览卡，返回不丢上下文 | `data-action="node"` → 速览卡 Modal；顶栏「返回」从上下文栈恢复路由与滚动位置 |
-| 条目与仓库文件不一致时列表有「待同步」 | `KB.syncStatus`：`updatedAt < repoUpdatedAt` 或本地覆盖层 → 首页卡片与内容管理页标记 |
-| 搜索支持按层筛选与标签组合 | 首页层 chip（多选）+ 标签 chip（AND 组合）+ 关键词 |
-| 收藏的预案可导出且格式完整 | `KB.favoritesMarkdown()` 导出故障模式、策略、监控项、代码模板；冒烟测试断言四要素 |
-| **2.0**：AI 草稿未经审核不得入库 | `KB.approveDraft` 检查 `status === 'reviewed'` + `validateEntry`；冒烟测试断言「未审核拒绝 / 已审核放行」 |
-| **2.0**：本地录入事故能进卡 8 | 字段统一为 `item/expected`；冒烟测试渲染卡 8 断言出现录入内容 |
-| **2.0**：links 骨架引用完整且可采纳 | `build-snapshot` 校验 methodId / 建议引用 / 自引用；冒烟测试断言骨架打包与采纳后 links 更新 |
-| **2.0**：深链按名可解析 | 冒烟测试渲染 `#/entry/by-name/useUploadQueue?ref=...&line=...` 并断言 `KB.resolveByName` |
+| 任一条目完整展示四问 + 链路，卡片间互跳 | 详情页 7 Tab；每张卡底部跳转按钮；`smoke-test` 逐卡渲染 |
+| 对比卡结论必须含「什么条件下选哪个」 | `KB.validateEntry` + `build-snapshot` 双条件正则；失败非零退出 |
+| 兜底卡按层分组，每层含策略 / 代码模板 / 监控项 | `C.fallbackGroup` 按层分组；校验逐行检查 4 字段且 ≥2 层 |
+| 链路卡节点点击到达速览卡，返回不丢上下文 | `data-action="node"` → Modal；顶栏「返回」恢复路由与滚动位置 |
+| 条目与仓库不一致时有「待同步」 | `KB.syncStatus`；首页卡片与内容管理页标记（当前 6 条待同步） |
+| 搜索支持按层筛选与标签组合 | 首页层 chip（多选）+ 标签 chip（AND）+ 关键词 |
+| 收藏预案可导出且格式完整 | `KB.favoritesMarkdown()`；冒烟测试断言四要素 |
+| **2.0**：AI 草稿未经审核不得入库 | `KB.approveDraft` 门禁 + 冒烟断言「未审核拒绝 / 已审核放行」 |
+| **2.0**：本地录入事故能进卡 8 | 字段统一 `item/expected` + 渲染断言 |
+| **2.0**：links 骨架引用完整且可采纳 | 构建校验 + 冒烟断言采纳后 links 更新 |
+| **3.0**：多项目数据域切换与引用完整 | 冒烟断言 2 项目 / 26 仓库条目 / 切换后 14↔12 / id 唯一 |
+| **3.0**：跨项目对比有差异且可导出 | 冒烟断言 ≥4 组同名概念、≥10 字段、diffCount > 0、Markdown 含标题 |
+| **3.0**：评审校验、表决、状态流转 | 冒烟断言非法评审拦截 / 保存 / 两种表决 / 删除 / 导出 |
+| **3.0**：只读脱敏无旁路 | 冒烟断言复制路径、深链、详情页 HTML 均不含完整 repoPath |
+| **3.0**：200 节点触发轻量渲染 | 冒烟断言 + Chrome 实测基准（13.7ms） |
 
 ---
 
 ## 数据模型与同步约定
 
-`MethodEntry` 字段见 `schema/method-entry.schema.json`：`what / why / alternatives / fallback / pitfalls / tags / repoPath / links / examples / updatedAt`，另有二期所需的 `decisionTree`。`Chain`、`Incident`、排查流分别独立存放。
+`MethodEntry` 字段见 `schema/method-entry.schema.json`，3.0 起每条带 `projectId`（缺省由构建脚本按项目补齐）。`Chain` / `Incident` / 排查流 / 评审记录分别独立存放，也都带 `projectId`。
 
-- 条目的事实源在 `content/`，App 只做渲染与索引（内容防腐化）。
-- `updatedAt`（文档更新）早于 `repoUpdatedAt`（源码变更）→ **待同步**；距 `lastCodeChangeAt` 超 120 天 → **可能过期**。
-- 导入 / 编辑 / 事故录入 / 草稿批准 / 采纳骨架都先写入浏览器 localStorage 覆盖层并标记待同步；由编辑者回写仓库文件后运行 `npm run build` 重建快照，状态恢复。
-- 学习进度、打卡、已掌握、草稿、服务配置同样在 localStorage；**API Key 不持久化**。
-- 只读分享时仓库路径做遮罩，避免内部代码路径外泄。
+- `content/projects.json` 是项目唯一注册表；`contentBase` 指向该项目的四类 JSON。
+- `updatedAt < repoUpdatedAt` → **待同步**；距 `lastCodeChangeAt` 超 120 天 → **可能过期**。
+- 导入 / 编辑 / 事故 / 草稿批准 / 骨架采纳 / 评审写入都先进浏览器 localStorage 覆盖层并标记待回写；编辑者回写仓库并跑 `npm run build` 后状态恢复。
+- 项目选择、角色、收藏、进度、草稿、评审、备份时间存 localStorage；**API Key 不持久化**。
+- 只读分享时路径统一遮罩，代码块、深链与导出内容同样受限。
 
 ---
 
 ## 边界与限制
 
-- **无后端服务**：收藏 / 本地编辑 / 事故 / 草稿 / 进度 / 角色设置均按浏览器 localStorage 隔离，跨设备不同步；角色切换是本地权限门控演示，不是真实鉴权。团队共享需接真实后端与账号体系。
-- **pgvector / LLM 是可选接入**：默认走本地实现，远程契约见上文；未接真实 embedding 服务时语义检索是 TF-IDF 近似，不等价于模型向量。
-- **Tree-sitter 是可选依赖**：未安装时由内置轻量静态解析器兜底（支持常见 JS/TS 声明与调用），复杂语法需安装 tree-sitter  grammar 后重跑。
-- **F19 不含 CI 自动提醒**：目前是「选方法 → 生成检查单」，不是 PR 触发的推送。
-- **未实现**：F18 多项目复用、F20 团队评论评审，以及需求文档中的学习推送 / 排行榜类强游戏化。
+- **仍无后端服务**：收藏 / 编辑 / 事故 / 草稿 / 进度 / 评审 / 角色都是浏览器本地状态，跨设备不同步；角色切换是权限门控演示，不是真实鉴权。F20 的「团队协作」是**仓库同源 + 导出回写**模式，不是多人实时协同 —— 要实时共享仍需接真实后端与账号体系。
+- **pgvector / LLM 是可选接入**：默认本地 TF-IDF 与启发式起草，未接真实 embedding / 模型服务。
+- **Tree-sitter 是可选依赖**：未安装时由内置静态解析器兜底，目前仅覆盖常见 JS/TS 语法（不支持 Java/Go/Python）。
+- **VS Code 扩展是原型**：未打包发布，跳转是打开浏览器而非 IDE 内嵌，无 JetBrains 支持。
+- **CI 只生成检查单**：不自动回写 `content/`，不含合并阻断；fork PR 只写 job summary。
+- **强游戏化的学习推送 / 排行榜未做**（需求中 F16 定位为弱游戏化）。
 
 ---
 
 ## 可访问性与维护
 
-- 代码块一键复制；侧栏 A− / A＋ 调整字号；浅色 / 深色主题切换。
-- 卡片键盘可操作（按钮原生语义）；`/` 聚焦全局搜索，`Esc` 关闭弹窗。
+- 代码块一键复制；侧栏 A− / A＋ 调整字号；浅色 / 深色主题切换；卡片键盘可操作；`/` 聚焦搜索，`Esc` 关闭弹窗。
 - 打印样式单独定义，导出 PDF 时自动隐藏导航与按钮。
-- 修改 `content/*.json` 后务必跑 `npm run build`；校验不通过会以非零退出码阻止生成快照。
-- 新增 2.0 能力时，逻辑放 `v2.js`、页面放 `views2.js`，1.0 核心层尽量不动 —— 这是本次升级保持可维护性的约定。
+- 修改任何 `content/**/*.json` 后务必 `npm run build`；校验不通过会非零退出并阻止生成快照。
+- 架构约定：新增 2.0 能力放 `v2.js` / `views2.js`，3.0 放 `v3.js` / `views3.js`，`core.js` 只承担跨版本的数据与路由基座。脚本加载顺序：`data → core → v2 → v3 → cards → views2 → views3 → app`。

@@ -1,4 +1,5 @@
-/* StackMap · app.js — 页面视图、事件分发、启动（2.0 页面由 views2.js 提供） */
+/* StackMap · app.js — 页面视图、事件分发、启动
+ * 2.0 页面由 views2.js 提供，3.0 页面由 views3.js 提供；两者共用本文件的路由与事件总线。 */
 (function () {
   'use strict';
   const KB = window.KB, C = KB.cards;
@@ -53,6 +54,9 @@
       <div class="stat green"><div class="num">${KB.state.favorites.length}</div><div class="lbl">我的预案策略</div></div>
     </div>`;
     h += `<div class="callout ${stale ? 'warn' : 'good'} mb16"><strong>内容防腐化：</strong>${pending} 个条目代码已变更但文档未跟（列表显示「待同步」），${stale} 个条目距上次代码变更超过 120 天（建议复核）。${KB.state.mode === 'repo' ? '当前直接读取 content/*.json。' : '当前为离线快照模式，用本地 HTTP 服务启动即切换为仓库同源。'}</div>`;
+    const bk = KB.backupStatus ? KB.backupStatus() : null;
+    if (bk && bk.due) h += `<div class="callout warn mb16"><strong>数据备份已到期：</strong>${bk.days === null ? '尚未导出过全量备份' : '距上次导出 ' + bk.days + ' 天'}，建议到项目空间导出一次。
+      <button class="btn btn-sm" data-action="go" data-route="#/projects">前往项目空间</button></div>`;
 
     h += `<div class="card card-pad-sm mb16"><div class="row-wrap mb8"><strong class="small">按层筛选</strong><span class="grow"></span><span class="tiny dim">可与标签组合</span></div>
       <div class="row-wrap">
@@ -96,13 +100,16 @@
     if (!m) return notFound('找不到该条目：' + (r.p1 || '—'));
     const tab = r.qs.get('tab') || 'what';
     const ideRef = r.qs.get('ref'), ideLine = r.qs.get('line');
+    // 3.0：只读分享时路径统一脱敏，深链 / 复制 / 来源条都不能绕过
+    const safeRef = KB.maskPath(ideRef || m.repoPath), safeIdeRef = KB.maskPath(ideRef);
+    const reviewCount = KB.reviewsOfMethod ? KB.reviewsOfMethod(m.id).length : 0;
     let h = '';
     if (byName || ideRef) {
       h += `<div class="callout ide-banner mb16"><span class="grow"><strong>来自 IDE 的跳转（F14）</strong> · ${byName ? '按方法名解析：' + E(r.p2) : '深链定位'}
-        ${ideRef ? ' · 源码 <code>' + E(ideRef) + (ideLine ? ':' + E(ideLine) : '') + '</code>' : ''}
+        ${ideRef ? ' · 源码 <code>' + E(safeIdeRef) + (ideLine ? ':' + E(ideLine) : '') + '</code>' : ''}
         → 已命中 <strong>${E(m.name)}</strong> ${KB.layerChip(m.layer)}</span>
-        <button class="btn btn-sm" data-action="copyDeepLink" data-id="${E(m.id)}" data-ref="${E(ideRef || m.repoPath)}" data-line="${E(ideLine || '')}">复制固定 id 深链</button>
-        <button class="btn btn-sm" data-action="copyByNameLink" data-id="${E(m.id)}" data-ref="${E(ideRef || m.repoPath)}" data-line="${E(ideLine || '')}">复制按名深链</button></div>`;
+        <button class="btn btn-sm" data-action="copyDeepLink" data-id="${E(m.id)}" data-ref="${E(safeRef)}" data-line="${E(ideLine || '')}">复制固定 id 深链</button>
+        <button class="btn btn-sm" data-action="copyByNameLink" data-id="${E(m.id)}" data-ref="${E(safeRef)}" data-line="${E(ideLine || '')}">复制按名深链</button></div>`;
     }
     h += `<div class="detail-head mb16">
       <div class="row-wrap mb8"><span class="eyebrow tiny">条目详情 · 四问 + 链路</span><span class="grow"></span>${KB.statusBadge(m)}</div>
@@ -115,8 +122,9 @@
         <div class="small dim">源码：<code>${E(KB.repoPath(m))}</code> · 文档更新 ${E(m.updatedAt)} · 距上次代码变更 ${KB.daysSince(m.lastCodeChangeAt || m.updatedAt)} 天
           ${KB.state.role === 'readonly' ? '<span class="badge badge-amber">只读模式 · 路径已脱敏</span>' : ''}</div>
         <div class="row-wrap">
-          <button class="btn btn-sm" data-action="copy" data-text="${E(m.repoPath)}">${I('copy')} 复制路径</button>
-          <button class="btn btn-sm" data-action="copyDeepLink" data-id="${E(m.id)}" data-ref="${E(m.repoPath)}" data-line="">${I('link')} 复制 IDE 深链</button>
+          <button class="btn btn-sm" data-action="copy" data-text="${E(KB.repoPath(m))}">${I('copy')} 复制路径</button>
+          <button class="btn btn-sm" data-action="copyDeepLink" data-id="${E(m.id)}" data-ref="${E(KB.repoPath(m))}" data-line="">${I('link')} 复制 IDE 深链</button>
+          <button class="btn btn-sm" data-action="go" data-route="#/reviews?method=${E(m.id)}">${I('file')} 评审${reviewCount ? ' · ' + reviewCount : ''}</button>
           <button class="btn btn-sm" data-action="master" data-id="${E(m.id)}">${I('check')} ${KB.state.progress.mastered.indexOf(m.id) >= 0 ? '取消掌握' : '标记已掌握'}</button>
           <button class="btn btn-primary btn-sm" data-action="go" data-route="#/cards/${E(m.id)}">${I('cards')} 卡片学习</button>
           <button class="btn btn-sm" data-action="go" data-route="#/favorites">${I('star')} 我的预案</button>
@@ -504,6 +512,8 @@
       case 'admin': html = viewAdmin(); break;
       case 'incidents': case 'incident': case 'drafts': case 'progress': case 'impact':
         html = KB.views2.view(r.name, r); break;
+      case 'projects': case 'compare': case 'reviews':
+        html = KB.views3.view(r.name, r); break;
       default: html = notFound('未知页面：' + r.name);
     }
     main.innerHTML = html;
@@ -534,6 +544,8 @@
     if (a === 'overlayClose') { if (e.target === el) KB.closeModal(); return; }
     // 2.0 页面（事故 / 草稿 / 进度 / 影响 / 服务配置 / 深链）委托给 views2.js
     if (KB.views2 && KB.views2.action(a, d, el, rerender)) return;
+    // 3.0 页面（项目空间 / 跨项目对比 / 团队评审）委托给 views3.js
+    if (KB.views3 && KB.views3.action(a, d, el, rerender)) return;
 
     switch (a) {
       case 'go':
@@ -624,8 +636,15 @@
       }
       case 'exportJson': {
         if (!KB.canEdit()) { KB.toast('只读用户不可导出备份', 'err'); break; }
-        const backup = { schemaVersion: '1.0', exportedAt: new Date().toISOString(), entries: KB.methods() };
-        KB.download('methods-backup-' + KB.today() + '.json', JSON.stringify(backup, null, 2), 'application/json'); break;
+        const backup = {
+          schemaVersion: '3.0', exportedAt: new Date().toISOString(),
+          projectId: KB.state.projectId, project: KB.state.project,
+          entries: KB.methods(), chains: KB.chains(), incidents: KB.incidents(),
+          reviews: KB.reviews(), linksSkeleton: KB.state.repo.linksSkeleton || null
+        };
+        KB.download('methods-backup-' + KB.state.projectId + '-' + KB.today() + '.json', JSON.stringify(backup, null, 2), 'application/json');
+        if (KB.markBackup) KB.markBackup();
+        break;
       }
       case 'theme': KB.setTheme(KB.state.theme === 'dark' ? 'light' : 'dark'); break;
       case 'font': KB.setFont(parseFloat(d.delta)); break;
@@ -718,7 +737,9 @@
   document.addEventListener('change', function (e) {
     const el = e.target;
     if (KB.views2 && KB.views2.change(el, rerender)) return;
+    if (KB.views3 && KB.views3.change(el, rerender)) return;
     const a = el.dataset ? el.dataset.action : '';
+    if (a === 'projectSwitch') { const r = KB.setProject(el.value); KB.toast(r.message, r.ok ? 'ok' : 'err'); return; }
     if (a === 'role') { KB.setRole(el.value); return; }
     if (el.id === 'roleSelect') { KB.setRole(el.value); return; }
     if (a === 'chainSelect') {

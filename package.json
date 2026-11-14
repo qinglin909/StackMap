@@ -1,6 +1,6 @@
 {
   "name": "stackmap",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "description": "StackMap · 面向研发团队的全栈方法知识库与决策辅助 App",
   "type": "module",
@@ -9,6 +9,8 @@
     "build": "node tools/build-snapshot.mjs",
     "test": "node tools/smoke-test.mjs",
     "extract:links": "node tools/extract-links.mjs",
+    "impact": "node tools/pr-impact.mjs --base HEAD~1 --head HEAD --out impact.md",
+    "impact:self-test": "node tools/pr-impact.mjs --self-test",
     "verify": "node tools/build-snapshot.mjs && node tools/smoke-test.mjs && node tools/extract-links.mjs --check"
   }
 }

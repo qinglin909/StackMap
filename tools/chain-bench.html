@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>StackMap 链路渲染基准 · 运行中</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { font: 13px/1.6 system-ui, sans-serif; padding: 20px; }
+  h1 { font-size: 18px; }
+  #host { position: relative; height: 420px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
+  pre { background: var(--code-bg); padding: 14px; border-radius: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>StackMap · 链路 SVG 渲染基准</h1>
+<p class="tiny">测量 chainGraph() 生成字符串、innerHTML 挂载、强制布局三段耗时；阈值：单次全链路 &lt; 1000ms，且 200 节点必须触发大图轻量模式。</p>
+<div id="host"></div>
+<pre id="out">运行中…</pre>
+
+<script src="../core.js"></script>
+<script src="../cards.js"></script>
+<script>
+(function () {
+  'use strict';
+  const KB = window.KB;
+  KB.state.projects = [{ id: 'bench', name: 'bench', short: 'bench' }];
+  KB.state.defaultProjectId = 'bench';
+  KB.state.projectId = 'bench';
+  KB.state.role = 'editor';
+  const sizes = [8, 60, 120, 200];
+  const host = document.getElementById('host');
+  const rows = [];
+  sizes.forEach(function (n) {
+    const methods = [], nodes = [], edges = [];
+    for (let i = 0; i < n; i++) {
+      const id = 'bench.' + i;
+      methods.push({
+        id: id, name: 'benchMethod' + i, layer: KB.LAYERS[i % 5],
+        module: 'm' + (i % 7), repoPath: 'apps/bench/' + i + '.ts', projectId: 'bench'
+      });
+      nodes.push(id);
+      if (i > 0) edges.push({ from: nodes[i - 1], to: id, relation: '调用' });
+    }
+    KB.state.repo.methods = methods;
+    KB.state.repo.chains = [{
+      id: 'bench', name: '基准链路', entryMethodId: nodes[0],
+      nodes: nodes, edges: edges, description: '基准用合成数据', projectId: 'bench'
+    }];
+    KB.state.repo.troubleshooting = { flows: [], sceneSynonyms: {}, sceneExamples: [] };
+    const t0 = performance.now();
+    const html = KB.cards.chainGraph('bench', nodes[0], false);
+    const t1 = performance.now();
+    host.innerHTML = html;
+    const els = host.querySelectorAll('*').length;
+    const t2 = performance.now();
+    void host.offsetHeight; // 强制同步布局
+    const t3 = performance.now();
+    rows.push({
+      nodes: n,
+      buildMs: +(t1 - t0).toFixed(1),
+      domMs: +(t2 - t1).toFixed(1),
+      layoutMs: +(t3 - t2).toFixed(1),
+      totalMs: +(t3 - t0).toFixed(1),
+      domElements: els,
+      htmlKB: +(html.length / 1024).toFixed(1),
+      lite: html.indexOf('大图轻量模式') >= 0
+    });
+  });
+  const pass = rows.every(function (r) { return r.totalMs < 1000; }) && rows[3].lite && !rows[0].lite;
+  const result = { pass: pass, thresholdMs: 1000, rows: rows };
+  document.title = 'BENCH ' + JSON.stringify(result);
+  document.getElementById('out').textContent = JSON.stringify(result, null, 2);
+})();
+</script>
+</body>
+</html>
