@@ -25,6 +25,18 @@
       "status": "active",
       "owner": "支付研发组",
       "updatedAt": "2026-11-14"
+    },
+    {
+      "id": "apicards",
+      "name": "通用 API 方法库",
+      "short": "方法库",
+      "description": "按 9 大技术科目组织的通用 API / 方法四问卡片，由 dev-api-index.json 批量生成，属 AI 草稿待人工审核。",
+      "stack": "Vue 3 / LangChain / JavaScript / Java / Python / SQL / Redis / Git",
+      "contentBase": "content/projects/apicards",
+      "color": "#8b5cf6",
+      "status": "active",
+      "owner": "内容组",
+      "updatedAt": "2026-11-14"
     }
   ]
 }

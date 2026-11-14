@@ -225,9 +225,9 @@ ok(im.chains.length > 0, '未聚合到受影响链路');
 ok(KB.impactMarkdown('m.fe.uploadFile').includes('PR 变更影响检查单'), '检查单导出失败');
 
 // ---- 3.0：F18 多项目切换 ----
-ok(KB.projects().length === 2, '项目注册表未加载（应为 2 个项目）');
-// 注意：前面的 2.0 冒烟测试批准了一条本地草稿入库，因此全量 = 26 + 1 本地条目
-ok(KB.allMethods().length === 27, '全量条目应为 26 仓库条目 + 1 本地覆盖层条目');
+ok(KB.projects().length === 3, '项目注册表未加载（应为 3 个项目：云枢/星链/方法库）');
+// 注意：前面的 2.0 冒烟测试批准了一条本地草稿入库，因此全量 = 26 + 304 (apicards) + 1 本地条目
+ok(KB.allMethods().length === 331, '全量条目应为 26 仓库条目 + 304 方法库条目 + 1 本地覆盖层条目');
 ok(KB.methods().length === 15 && KB.methods().every((x) => KB.projectIdOf(x) === 'yunshu'), '默认项目数据域应为云枢条目');
 ok(KB.sharedConcepts().length >= 4, '跨项目同名概念不足 4 组');
 const projSw = KB.setProject('xinglian');
@@ -243,10 +243,15 @@ const cmp = KB.compareOf(concepts[0].name);
 ok(cmp && cmp.cols.length >= 2 && cmp.rows.length >= 10, '跨项目对比矩阵不完整');
 ok(cmp && cmp.diffCount > 0, '同名方法对比没有差异字段（对比无意义）');
 ok(KB.compareMarkdown(concepts[0].name).includes('跨项目对比'), '对比导出 Markdown 格式错误');
-ok(KB.projectMatrix().length === 2 && KB.projectStats('xinglian').methods === 12, '项目对比矩阵统计错误');
+ok(KB.projectMatrix().length === 3 && KB.projectStats('xinglian').methods === 12 && KB.projectStats('apicards').methods === 304, '项目对比矩阵统计错误');
 // 浏览器仓库模式为 9/7；冒烟测试里已批准一条本地草稿入库，云枢会多 1 个独有名字
+// 共享口径为「≥2 项目并集」：云枢↔星链 5 组不受方法库加入影响
 ok(KB.projectMatrix()[0].unique.length >= 9 && KB.projectMatrix()[1].unique.length === 7,
   '独有方法统计错误：' + KB.projectMatrix().map((r) => r.project.short + '=' + r.unique.length).join('/'));
+// 方法库切换与数据域
+const projApi = KB.setProject('apicards');
+ok(projApi.ok && KB.methods().length === 304 && KB.methods().every((x) => KB.projectIdOf(x) === 'apicards'), '切换到方法库后数据域未生效');
+KB.setProject('yunshu');
 
 // ---- 3.0：F20 团队评审 ----
 ok(KB.reviews('*').length === 4, '评审记录未加载（全项目应为 4 条）');
@@ -307,7 +312,7 @@ if (errors.length) {
   errors.forEach((e) => console.error('  - ' + e));
   process.exit(1);
 }
-console.log(`✓ 页面渲染 ${routes.length} 个 / 8 类卡片 / 2 个 Markdown 导入 / ${KB.allMethods().length} 个条目校验（2 个项目）`);
+console.log(`✓ 页面渲染 ${routes.length} 个 / 8 类卡片 / 2 个 Markdown 导入 / ${KB.allMethods().length} 个条目校验（${KB.projects().length} 个项目）`);
 console.log('✓ 决策树 END 路径全部有推荐方案；排查流步骤可达；过滤 / 场景反查 / 预案导出正常');
 console.log('✓ 2.0：向量检索 / 事故录入 / 草稿审核门禁 / IDE 深链 / links 骨架 / 打卡周报 / 变更影响');
 console.log('✓ 3.0：多项目切换 / 跨项目对比 / 团队评审与表决 / 只读脱敏无旁路 / 200 节点轻量渲染 / 备份提醒');

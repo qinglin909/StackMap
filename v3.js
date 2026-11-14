@@ -61,9 +61,14 @@
     return KB.LAYERS.map((l) => ({ layer: l, count: ms.filter((m) => m.layer === l).length }));
   };
   KB.sharedConcepts = function () {
-    const sets = KB.projects().map((p) => new Set(KB.methods(p.id).map((m) => m.name)));
-    if (sets.length < 2) return [];
-    return Array.from(sets[0]).filter((n) => sets.slice(1).every((s) => s.has(n))).sort();
+    // 口径：出现在 ≥2 个项目中的方法名（并集口径，多项目时不因交集归零）
+    const ps = KB.projects();
+    if (ps.length < 2) return [];
+    const counts = new Map();
+    ps.forEach((p) => {
+      new Set(KB.methods(p.id).map((m) => m.name)).forEach((n) => counts.set(n, (counts.get(n) || 0) + 1));
+    });
+    return Array.from(counts.entries()).filter(([, c]) => c >= 2).map(([n]) => n).sort();
   };
   KB.projectMatrix = function () {
     const ps = KB.projects();

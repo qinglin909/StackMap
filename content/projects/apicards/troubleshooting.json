@@ -1,0 +1,227 @@
+{
+  "flows": [],
+  "sceneSynonyms": {
+    "响应式": [
+      "Vue",
+      "Vue 3 + TypeScript"
+    ],
+    "生命周期": [
+      "Vue",
+      "Vue 3 + TypeScript"
+    ],
+    "工具": [
+      "Vue",
+      "Vue 3 + TypeScript",
+      "Java",
+      "Java 21"
+    ],
+    "组件通信": [
+      "Vue",
+      "Vue 3 + TypeScript"
+    ],
+    "路由": [
+      "Vue",
+      "Vue 3 + TypeScript"
+    ],
+    "状态管理": [
+      "Vue",
+      "Vue 3 + TypeScript"
+    ],
+    "模型": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "提示词": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "链与编排": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "检索": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "文档处理": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "记忆": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "向量库": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "Agent": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "输出解析": [
+      "LangChain",
+      "LangChain 1.x"
+    ],
+    "数组": [
+      "JavaScript",
+      "JavaScript (ES2023)",
+      "Java",
+      "Java 21"
+    ],
+    "字符串": [
+      "JavaScript",
+      "JavaScript (ES2023)",
+      "Java",
+      "Java 21",
+      "Python",
+      "Python 3.12",
+      "Redis",
+      "Redis 7"
+    ],
+    "对象": [
+      "JavaScript",
+      "JavaScript (ES2023)"
+    ],
+    "集合": [
+      "Java",
+      "Java 21",
+      "Redis",
+      "Redis 7"
+    ],
+    "Optional": [
+      "Java",
+      "Java 21"
+    ],
+    "并发": [
+      "Java",
+      "Java 21"
+    ],
+    "IO": [
+      "Java",
+      "Java 21"
+    ],
+    "日期": [
+      "Java",
+      "Java 21",
+      "Python",
+      "Python 3.12"
+    ],
+    "列表": [
+      "Python",
+      "Python 3.12",
+      "Redis",
+      "Redis 7"
+    ],
+    "字典": [
+      "Python",
+      "Python 3.12"
+    ],
+    "文件": [
+      "Python",
+      "Python 3.12"
+    ],
+    "字符串函数": [
+      "SQL",
+      "PostgreSQL 16 / MySQL 8"
+    ],
+    "数学函数": [
+      "SQL",
+      "PostgreSQL 16 / MySQL 8"
+    ],
+    "聚合函数": [
+      "SQL",
+      "PostgreSQL 16 / MySQL 8"
+    ],
+    "日期函数": [
+      "SQL",
+      "PostgreSQL 16 / MySQL 8"
+    ],
+    "控制函数": [
+      "SQL",
+      "PostgreSQL 16 / MySQL 8"
+    ],
+    "哈希": [
+      "Redis",
+      "Redis 7"
+    ],
+    "有序集合": [
+      "Redis",
+      "Redis 7"
+    ],
+    "键管理": [
+      "Redis",
+      "Redis 7"
+    ],
+    "事务与脚本": [
+      "Redis",
+      "Redis 7"
+    ],
+    "发布订阅与流": [
+      "Redis",
+      "Redis 7"
+    ],
+    "持久化与运维": [
+      "Redis",
+      "Redis 7"
+    ],
+    "分布式场景": [
+      "Redis",
+      "Redis 7"
+    ],
+    "接口层": [
+      "后端通用",
+      "通用后端"
+    ],
+    "服务层": [
+      "后端通用",
+      "通用后端"
+    ],
+    "数据访问": [
+      "后端通用",
+      "通用后端"
+    ],
+    "消息": [
+      "后端通用",
+      "通用后端"
+    ],
+    "仓库": [
+      "Git",
+      "Git 2.x"
+    ],
+    "同步": [
+      "Git",
+      "Git 2.x"
+    ],
+    "提交": [
+      "Git",
+      "Git 2.x"
+    ],
+    "查看": [
+      "Git",
+      "Git 2.x"
+    ],
+    "分支": [
+      "Git",
+      "Git 2.x"
+    ],
+    "回退": [
+      "Git",
+      "Git 2.x"
+    ],
+    "暂存": [
+      "Git",
+      "Git 2.x"
+    ],
+    "标签": [
+      "Git",
+      "Git 2.x"
+    ]
+  },
+  "sceneExamples": [
+    "Vue 响应式怎么做",
+    "Redis 分布式锁怎么兜底",
+    "Git 回退已提交的代码",
+    "SQL 分组聚合怎么写"
+  ]
+}
